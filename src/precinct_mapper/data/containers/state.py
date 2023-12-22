@@ -6,18 +6,28 @@ from typing import List
 class State(Region):
     """A class to represent a state, its boundary, and counties."""
     def __init__(
-        self, name: str, boundary: Polygon | MultiPolygon
+        self, name: str, boundary: Polygon | MultiPolygon, additional_columns: List[str] = []
     ):
         """Initializes State object with btype of \'state\'.
+        By default, 
 
         Args:
             name: name of the boundary
             boundary: shape of this state's boundary
         """
         super().__init__("state", name, boundary)
-        self.counties = GeoDataFrame(
-            columns=["name", "county", "geometry"], geometry="geometry"
-        )
+        self.geotable = GeoDataFrame(
+            columns=[
+                "precinct",
+                "precinct_geometry",
+                "legislative_district",
+                "congressional_district",
+                "school_district",
+                "county",
+                "city"
+                ] + additional_columns,
+                geometry="precinct_geometry"
+            )
 
     def get_county_names(self) -> List[str]:
         """Returns the names of all counties in this state in ascending order"""
@@ -38,6 +48,7 @@ class State(Region):
         raise LookupError(f"Could not find county containing coordinates: { coord }")
 
     def get_county_by_name(self, county_name: str) -> County:
+        """Returns the County in this state with the given name"""
         if county_name not in self.counties["name"]:
             raise LookupError(f"Could not find county with name: { county_name }. Try one of {list(self.counties['name'])}")
         
