@@ -30,7 +30,7 @@ class _DataFetcherHelper:
         Raises:
             RuntimeError: if issue accessing the given url for data.
         """
-        output_path = output_path / f"{ request_builder.name_info }.geojson"
+        output_path = output_path / f"{ request_builder.dst_name }.geojson"
         if overwrite_existing or not output_path.exists():
             data = _DataFetcherHelper._get_boundaries_from_geojson(request_builder)
             with open(output_path, "w") as file:
@@ -50,13 +50,11 @@ class _DataFetcherHelper:
         Raises:
             RuntimeError: if issue accessing the given url for data.
         """
-        named_data = _DataFetcherHelper._get_boundaries_from_shapefile(request_builder)
-        for src_name, dst_name in request_builder.name_info.items():
-            file_output_path = output_path / f"{ dst_name }.geojson"
-            if overwrite_existing or not file_output_path.exists():
-                data = named_data[src_name]
-                with open(file_output_path, "w") as file:
-                    file.write(data.to_json())
+        data = _DataFetcherHelper._get_boundaries_from_shapefile(request_builder)
+        file_output_path = output_path / f"{ request_builder.dst_name }.geojson"
+        if overwrite_existing or not file_output_path.exists():
+            with open(file_output_path, "w") as file:
+                file.write(data.to_json())
         
     @staticmethod
     def _nested_path(base: Path, subdirs: List[str], make_if_absent: bool = False) -> Path:
@@ -131,7 +129,7 @@ class _DataFetcherHelper:
                 response.raise_for_status()
                 raw_boundary_data = json.loads(response.content)
                 processed_boundary_data = gpd.GeoDataFrame.from_features(raw_boundary_data["features"])
-                return processed_boundary_data
+            return processed_boundary_data
         except requests.exceptions.ConnectionError as exc:
             raise RuntimeError("Could not connect.") from exc
         except requests.exceptions.Timeout as exc:
@@ -140,7 +138,7 @@ class _DataFetcherHelper:
             raise RuntimeError(f"An error occurred: {exc}") from exc
         
     @staticmethod
-    def _get_boundaries_from_shapefile(request_builder: _BoundaryRequestBuilder, timeout: int = 10) -> Dict[str, gpd.GeoDataFrame]:
+    def _get_boundaries_from_shapefile(request_builder: _BoundaryRequestBuilder, timeout: int = 10) -> gpd.GeoDataFrame:
         """Returns a GeoPandas GeoDataFrame of the location data found by
         querying the URL from the given request builder. Will give up after
         the given timeout in seconds.
@@ -163,10 +161,10 @@ class _DataFetcherHelper:
                     with zipfile.ZipFile(io.BytesIO(response.content), "r") as zip_ref:
                         zip_ref.extractall(tmpdir)
                     subdirectory = next(Path(tmpdir).iterdir())
-                    frames = {}
-                    for name in request_builder.name_info.keys():
-                        frames[name] = gpd.read_file(subdirectory / f"{ name }.shp")
-            return frames
+                    processed_boundary_data = gpd.read_file(subdirectory / f"{ request_builder.src_name }.shp")
+            # additional_columns = set(processed_boundary_data.columns) - set(request_builder.out_fields + ["geometry"])
+            # processed_boundary_data.drop(additional_columns, axis=1, inplace=True)
+            return processed_boundary_data[request_builder.out_fields + ["geometry"]]
         except requests.exceptions.ConnectionError as exc:
             raise RuntimeError("Could not connect.") from exc
         except requests.exceptions.Timeout as exc:
@@ -178,13 +176,13 @@ class _DataFetcherHelper:
 class _BoundaryRequestBuilder:
     """A class used to prepare urls for query from a GIS Database where the
     data is in GeoJSON or Shapefile format."""
-    def __init__(self, name_info: str | Dict[str, str], base_url: str, out_fields: List[str] | None = None, src_format: str = "geojson"):
+    def __init__(self, dst_name: str, base_url: str, out_fields: List[str], src_format: str = "geojson", src_name: str | None = None):
         """Initializes a boundary request object.
 
         Args:
             base_url: url to query and (optionally) append parameters to (usually in case of geojson).
             format: Format of data to query (\'geojson\' or \'shapefile\').
-            out_fields: for a geojson file, the list of fields to request.
+            out_fields: for a geojson file, the list of fields to request. for all files, the column names to include.
             names: in case of shapefile request, names of shapefiles to extract from zip archive.
 
         Raises:
@@ -202,14 +200,18 @@ class _BoundaryRequestBuilder:
                     }
                 )
             case "shapefile":
+                if src_name is None:
+                    raise ValueError("Format \'shapefile\' requires argument \'src_name\'")
                 self.req = Request(
                     method = "GET",
                     url = base_url
                 )
             case _:
                 raise ValueError(f"format must be one of (\'geojson\', \'shapefile\'). Got: \'{ src_format }\'")
-        self.name_info = name_info
+        self.out_fields = out_fields
+        self.dst_name = dst_name
         self.src_format = src_format
+        self.src_name = src_name
 
     def prepare(self) -> PreparedRequest:
         """Returns the prepared request resulting from this builder."""
@@ -264,7 +266,7 @@ class WADataFetcher(StateDataFetcher):
         additional_layers = {
             "city": {
                 "seattle" : [_BoundaryRequestBuilder("city_council_district", "https://services.arcgis.com/ZOyb2t4B0UYuYNYH/arcgis/rest/services/Seattle_City_Council_Districts_2024/FeatureServer/0/query", ["C_DISTRICT", "DISPLAY_NAME"])],
-                "bellingham": [_BoundaryRequestBuilder({"COB_plan_Wards": "ward"}, "https://data.cob.org/data/gis/SHP_Files/COB_plan_shps.zip", src_format="shapefile")]
+                "bellingham": [_BoundaryRequestBuilder("ward", "https://data.cob.org/data/gis/SHP_Files/COB_plan_shps.zip", ["GLOBALID", "WARD_NUMBE"], src_format="shapefile", src_name="COB_plan_Wards")]
             },
             "county": {
                 "king" : [_BoundaryRequestBuilder("county_council_district", "https://gisdata.kingcounty.gov/arcgis/rest/services/OpenDataPortal/district___base/MapServer/185/query", ["kccdst"])]
