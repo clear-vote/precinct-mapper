@@ -128,9 +128,8 @@ class _DataFetcherHelper:
             with _DataFetcherHelper.session.send(prepared_req, stream=True, timeout=timeout) as response:
                 response.raise_for_status()
                 raw_boundary_data = json.loads(response.content)
-                processed_boundary_data = gpd.GeoDataFrame.from_features(raw_boundary_data["features"])
-            processed_boundary_data.rename(request_builder.out_fields, axis=1, inplace=True)
-            return processed_boundary_data
+                boundary_data = gpd.GeoDataFrame.from_features(raw_boundary_data["features"])
+            return _DataFetcherHelper._process_frame(boundary_data, request_builder.out_fields)
         except requests.exceptions.ConnectionError as exc:
             raise RuntimeError("Could not connect.") from exc
         except requests.exceptions.Timeout as exc:
@@ -162,10 +161,8 @@ class _DataFetcherHelper:
                     with zipfile.ZipFile(io.BytesIO(response.content), "r") as zip_ref:
                         zip_ref.extractall(tmpdir)
                     subdirectory = next(Path(tmpdir).iterdir())
-                    processed_boundary_data = gpd.read_file(subdirectory / f"{ request_builder.src_name }.shp")
-            processed_boundary_data = processed_boundary_data[list(request_builder.out_fields.keys()) + ["geometry"]]
-            processed_boundary_data.rename(request_builder.out_fields, axis=1, inplace=True)
-            return processed_boundary_data
+                    boundary_data = gpd.read_file(subdirectory / f"{ request_builder.src_name }.shp")
+            return _DataFetcherHelper._process_frame(boundary_data, request_builder.out_fields)
         except requests.exceptions.ConnectionError as exc:
             raise RuntimeError("Could not connect.") from exc
         except requests.exceptions.Timeout as exc:
@@ -173,6 +170,13 @@ class _DataFetcherHelper:
         except requests.exceptions.RequestException as exc:
             raise RuntimeError(f"An error occurred: {exc}") from exc
         
+    def _process_frame(frame: gpd.GeoDataFrame, out_fields: Dict[str, str], lower: bool = True) -> gpd.GeoDataFrame:
+        new_frame = frame[list(out_fields.keys()) + ["geometry"]]
+        new_frame = new_frame.rename(out_fields, axis=1)
+        for c in new_frame.select_dtypes("object").columns:
+            new_frame[c] = new_frame[c].str.casefold()
+        return new_frame
+
 @typechecked
 class _BoundaryRequestBuilder:
     """A class used to prepare urls for query from a GIS Database where the
