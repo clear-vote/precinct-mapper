@@ -129,6 +129,7 @@ class _DataFetcherHelper:
                 response.raise_for_status()
                 raw_boundary_data = json.loads(response.content)
                 processed_boundary_data = gpd.GeoDataFrame.from_features(raw_boundary_data["features"])
+            processed_boundary_data.rename(request_builder.out_fields, axis=1, inplace=True)
             return processed_boundary_data
         except requests.exceptions.ConnectionError as exc:
             raise RuntimeError("Could not connect.") from exc
@@ -162,9 +163,9 @@ class _DataFetcherHelper:
                         zip_ref.extractall(tmpdir)
                     subdirectory = next(Path(tmpdir).iterdir())
                     processed_boundary_data = gpd.read_file(subdirectory / f"{ request_builder.src_name }.shp")
-            # additional_columns = set(processed_boundary_data.columns) - set(request_builder.out_fields + ["geometry"])
-            # processed_boundary_data.drop(additional_columns, axis=1, inplace=True)
-            return processed_boundary_data[request_builder.out_fields + ["geometry"]]
+            processed_boundary_data = processed_boundary_data[list(request_builder.out_fields.keys()) + ["geometry"]]
+            processed_boundary_data.rename(request_builder.out_fields, axis=1, inplace=True)
+            return processed_boundary_data
         except requests.exceptions.ConnectionError as exc:
             raise RuntimeError("Could not connect.") from exc
         except requests.exceptions.Timeout as exc:
@@ -176,7 +177,7 @@ class _DataFetcherHelper:
 class _BoundaryRequestBuilder:
     """A class used to prepare urls for query from a GIS Database where the
     data is in GeoJSON or Shapefile format."""
-    def __init__(self, dst_name: str, base_url: str, out_fields: List[str], src_format: str = "geojson", src_name: str | None = None):
+    def __init__(self, dst_name: str, base_url: str, out_fields: Dict[str, str], src_format: str = "geojson", src_name: str | None = None):
         """Initializes a boundary request object.
 
         Args:
@@ -195,7 +196,7 @@ class _BoundaryRequestBuilder:
                     url = base_url,
                     params = {
                         "where": "1=1",
-                        "outFields": ",".join(out_fields),
+                        "outFields": ",".join(out_fields.keys()),
                         "f": "geojson"
                     }
                 )
@@ -242,6 +243,7 @@ class StateDataFetcher:
 
         for btype, data in self.additional_layers.items():
             for region_name, layers in data.items():
+                print(region_name)
                 nested_dirs = [btype, region_name]
                 output_path = _DataFetcherHelper._nested_path(self.state_output_path, nested_dirs, make_if_absent=True)
                 for layer_request in layers:
@@ -256,20 +258,20 @@ class StateDataFetcher:
 class WADataFetcher(StateDataFetcher):
     def __init__(self):
         full_state_layer_requests = [
-            _BoundaryRequestBuilder("precinct", "https://services.arcgis.com/jsIt88o09Q0r1j8h/arcgis/rest/services/Statewide_Precincts_2019General_SPS/FeatureServer/0/query", ["PrecCode", "CountyName"]),
-            _BoundaryRequestBuilder("county", "https://gis.dnr.wa.gov/site3/rest/services/Public_Boundaries/WADNR_PUBLIC_Cadastre_OpenData/FeatureServer/11/query", ["JURISDICT_SYST_ID", "JURISDICT_LABEL_NM"]),
-            _BoundaryRequestBuilder("city", "https://services2.arcgis.com/J4VMdGWiZXReffvo/arcgis/rest/services/CityLimits/FeatureServer/0/query", ["OBJECTID", "CITY_NM", "COUNTY_NM"]),
-            _BoundaryRequestBuilder("legislative_district", "https://services.arcgis.com/bCYnGqM4FMTBSjd1/arcgis/rest/services/Washington_State_Legislative_Districts_2022/FeatureServer/0/query", ["ID", "DISTRICT"]),
-            _BoundaryRequestBuilder("congressional_district", "https://services.arcgis.com/bCYnGqM4FMTBSjd1/arcgis/rest/services/Washington_State_Congressional_Districts_2022/FeatureServer/0/query", ["ID", "DISTRICT"]),
-            _BoundaryRequestBuilder("water_district", "https://services8.arcgis.com/rGGrs6HCnw87OFOT/arcgis/rest/services/Drinking_Water_Service_Areas/FeatureServer/0/query", ["OBJECTID", "WS_Name"]),
+            _BoundaryRequestBuilder("precinct", "https://services.arcgis.com/jsIt88o09Q0r1j8h/arcgis/rest/services/Statewide_Precincts_2019General_SPS/FeatureServer/0/query", {"PrecCode": "id", "CountyName": "CountyName"}),
+            _BoundaryRequestBuilder("county", "https://gis.dnr.wa.gov/site3/rest/services/Public_Boundaries/WADNR_PUBLIC_Cadastre_OpenData/FeatureServer/11/query", {"JURISDICT_SYST_ID": "id", "JURISDICT_LABEL_NM": "name"}),
+            _BoundaryRequestBuilder("city", "https://services2.arcgis.com/J4VMdGWiZXReffvo/arcgis/rest/services/CityLimits/FeatureServer/0/query", {"OBJECTID": "id", "CITY_NM": "name", "COUNTY_NM": "COUNTY_NM"}),
+            _BoundaryRequestBuilder("legislative_district", "https://services.arcgis.com/bCYnGqM4FMTBSjd1/arcgis/rest/services/Washington_State_Legislative_Districts_2022/FeatureServer/0/query", {"ID": "id", "DISTRICT": "name"}),
+            _BoundaryRequestBuilder("congressional_district", "https://services.arcgis.com/bCYnGqM4FMTBSjd1/arcgis/rest/services/Washington_State_Congressional_Districts_2022/FeatureServer/0/query", {"ID": "id", "DISTRICT": "name"}),
+            _BoundaryRequestBuilder("water_district", "https://services8.arcgis.com/rGGrs6HCnw87OFOT/arcgis/rest/services/Drinking_Water_Service_Areas/FeatureServer/0/query", {"OBJECTID": "id", "WS_Name": "name"}),
         ]
         additional_layers = {
             "city": {
-                "seattle" : [_BoundaryRequestBuilder("city_council_district", "https://services.arcgis.com/ZOyb2t4B0UYuYNYH/arcgis/rest/services/Seattle_City_Council_Districts_2024/FeatureServer/0/query", ["C_DISTRICT", "DISPLAY_NAME"])],
-                "bellingham": [_BoundaryRequestBuilder("ward", "https://data.cob.org/data/gis/SHP_Files/COB_plan_shps.zip", ["GLOBALID", "WARD_NUMBE"], src_format="shapefile", src_name="COB_plan_Wards")]
+                "seattle" : [_BoundaryRequestBuilder("city_council_district", "https://services.arcgis.com/ZOyb2t4B0UYuYNYH/arcgis/rest/services/Seattle_City_Council_Districts_2024/FeatureServer/0/query", {"C_DISTRICT": "id", "DISPLAY_NAME": "name"})],
+                "bellingham": [_BoundaryRequestBuilder("ward", "https://data.cob.org/data/gis/SHP_Files/COB_plan_shps.zip", {"GLOBALID": "id", "WARD_NUMBE": "name"}, src_format="shapefile", src_name="COB_plan_Wards")]
             },
             "county": {
-                "king" : [_BoundaryRequestBuilder("county_council_district", "https://gisdata.kingcounty.gov/arcgis/rest/services/OpenDataPortal/district___base/MapServer/185/query", ["kccdst"])]
+                "king" : [_BoundaryRequestBuilder("county_council_district", "https://gisdata.kingcounty.gov/arcgis/rest/services/OpenDataPortal/district___base/MapServer/185/query", {"kccdst": "id"})]
             }
         }
         super().__init__("WA", full_state_layer_requests, additional_layers)
