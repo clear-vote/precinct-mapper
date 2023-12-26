@@ -11,6 +11,7 @@ import zipfile
 import io
 from typeguard import typechecked
 
+# list of sequentially nested subdirectory names under `data/datasets/`
 @typechecked
 class _DataFetcherHelper:
     datapath = Path(__file__).parent / "datasets"
@@ -19,13 +20,14 @@ class _DataFetcherHelper:
 
     @staticmethod
     def _fetch_from_geojson(request_builder: _BoundaryRequestBuilder, output_path: Path, overwrite_existing: bool = False):
-        """Fetches the geoJSON from the given url and stores it as a geoJSON file
+        """Fetches the geoJSON from the givem request builder and stores it as a geoJSON file
         under datasets/ using the given path extension.
         
         Args:
-            url: web url to fetch data from.
-            name: name stem of file to create (e.g., `\'city\'` for `\'city.geojson\'`).
-            path: list of sequentially nested subdirectory names under `data/datasets/`
+            request_builder: contains data about the request to make and postprocessing.
+            output_path: directory to write resulting geoJSON file to.
+            overwrite_existing: if True, overwrites any existing files of the same name;
+                if False, does not fetch remote data.
         
         Raises:
             RuntimeError: if issue accessing the given url for data.
@@ -38,14 +40,14 @@ class _DataFetcherHelper:
 
     @staticmethod
     def _fetch_from_shapefile(request_builder: _BoundaryRequestBuilder, output_path: Path, overwrite_existing: bool = False):
-        """Fetches the shapefiles from the given url and stores them as geoJSON files
+        """Fetches the shapefile from the givem request builder and stores it as a geoJSON file
         under datasets/ using the given path extension.
         
         Args:
-            url: web url to fetch data from.
-            names: map of filenames from source to name stem of file to create
-                (e.g., `\'city\'` for `\'city.geojson\'`).
-            path: list of sequentially nested subdirectory names under `data/datasets/`
+            request_builder: contains data about the request to make and postprocessing.
+            output_path: directory to write resulting geoJSON file to.
+            overwrite_existing: if True, overwrites any existing files of the same name;
+                if False, does not fetch remote data.
         
         Raises:
             RuntimeError: if issue accessing the given url for data.
@@ -110,9 +112,9 @@ class _DataFetcherHelper:
 
     @staticmethod
     def _get_boundaries_from_geojson(request_builder: _BoundaryRequestBuilder, timeout: int = 10) -> gpd.GeoDataFrame:
-        """Returns a GeoPandas GeoDataFrame of the location data found by
-        querying the URL from the given request builder. Will give up after
-        the given timeout in seconds.
+        """Returns a GeoPandas GeoDataFrame of the location data found by querying
+        the URL for geoJSON data from the given request builder.
+        Will give up after the given timeout in seconds.
 
         Args:
             request_builder: used to prepare the url to query.
@@ -122,6 +124,12 @@ class _DataFetcherHelper:
         Raises:
             RuntimeError: if could not connect to host with the given url or
                 request timed out or another request error was faced
+        
+        Note that the queried data is processed using the information in request builder.
+        Specifically:
+            - only geometry column and columns in request_builder.out_fields.keys() are kept
+            - columns are renamed according to request_builder.out_fields
+            - all strings are converted to lowercase
         """
         try:
             prepared_req = _DataFetcherHelper.session.prepare_request(request_builder.req)
@@ -139,9 +147,9 @@ class _DataFetcherHelper:
         
     @staticmethod
     def _get_boundaries_from_shapefile(request_builder: _BoundaryRequestBuilder, timeout: int = 10) -> gpd.GeoDataFrame:
-        """Returns a GeoPandas GeoDataFrame of the location data found by
-        querying the URL from the given request builder. Will give up after
-        the given timeout in seconds.
+        """Returns a GeoPandas GeoDataFrame of the location data found by querying
+        the URL for a zip archive of shapefile data from the given request builder.
+        Will give up after the given timeout in seconds.
 
         Args:
             request_builder: used to prepare the url to query.
@@ -151,6 +159,12 @@ class _DataFetcherHelper:
         Raises:
             RuntimeError: if could not connect to host with the given url or
                 request timed out or another request error was faced
+        
+        Note that the queried data is processed using the information in request builder.
+        Specifically:
+            - only geometry column and columns in request_builder.out_fields.keys() are kept
+            - columns are renamed according to request_builder.out_fields
+            - all strings are converted to lowercase
         """
         print("Fetching shapefile")
         try:
@@ -171,10 +185,19 @@ class _DataFetcherHelper:
             raise RuntimeError(f"An error occurred: {exc}") from exc
         
     def _process_frame(frame: gpd.GeoDataFrame, out_fields: Dict[str, str], lower: bool = True) -> gpd.GeoDataFrame:
+        """Returns a GeoDataFrame with limited, renamed columnset and lowercase strings
+        if specified.
+        
+        Args:
+            frame: GeoDataFrame to process
+            out_fields: maps source column names to output column names
+            lower: if True, converts all strings to lowercase
+        """
         new_frame = frame[list(out_fields.keys()) + ["geometry"]]
         new_frame = new_frame.rename(out_fields, axis=1)
-        for c in new_frame.select_dtypes("object").columns:
-            new_frame[c] = new_frame[c].str.casefold()
+        if lower:
+            for c in new_frame.select_dtypes("object").columns:
+                new_frame[c] = new_frame[c].str.casefold()
         return new_frame
 
 @typechecked
@@ -185,13 +208,16 @@ class _BoundaryRequestBuilder:
         """Initializes a boundary request object.
 
         Args:
-            base_url: url to query and (optionally) append parameters to (usually in case of geojson).
-            format: Format of data to query (\'geojson\' or \'shapefile\').
-            out_fields: for a geojson file, the list of fields to request. for all files, the column names to include.
-            names: in case of shapefile request, names of shapefiles to extract from zip archive.
+            dst_name: name stem of file to create (e.g., `\'city\'` for `\'city.geojson\'`).
+            base_url: url to query and (optionally) append parameters to (in case of geojson).
+            out_fields: maps the list of fields to request from source to output names to include
+                in result.
+            src_format: Format of data to query (\'geojson\' or \'shapefile\').
+            src_name: in case of shapefile request, name of shapefile to extract from zip archive.
 
         Raises:
-            ValueError if `format` is not \'geojson\' or \'shapefile\'
+            ValueError if `format` is not \'geojson\' or \'shapefile\' or
+                if \'src_name\' argument is not included when src_format is \'shapefile\'
         """
         match src_format:
             case "geojson":
@@ -218,25 +244,44 @@ class _BoundaryRequestBuilder:
         self.src_format = src_format
         self.src_name = src_name
 
-    def prepare(self) -> PreparedRequest:
-        """Returns the prepared request resulting from this builder."""
-        return self.req.prepare()
-
 @typechecked
 class StateDataFetcher:
+    """A base class used to fetch geodata for a state"""
     def __init__(
             self,
-            code,
+            code: str,
             full_state_layer_requests: List[_BoundaryRequestBuilder],
             additional_layers: Dict[str, Dict[str, List[_BoundaryRequestBuilder]]]
         ):
-        self.code = code
+        """Initializes this StateDataFetcher object.
+        
+        Args:
+            code: the two-letter state code that corresponds to this fetcher.
+            full_state_layer_requests: a list of boundary request builders for
+                geodata available at the state level
+            additional layers: a map of scope (e.g., \'city\', \'county\') to
+                maps of region name to lists of boundary request builders
+                specific to data for that region.
+
+        Note: will create a directory under datasets with the same name as the
+        given code, if it does not already exist.
+        """
+        if len(code) != 2:
+            raise ValueError(f"State codes must be two letters. Got: \'{ code }\'")
+        self.code = code.upper()
         self.state_output_path = _DataFetcherHelper.datapath / code
         self.state_output_path.mkdir(parents=True, exist_ok=True)
         self.full_state_layer_requests = full_state_layer_requests
         self.additional_layers = additional_layers
 
-    def fetch(self, overwrite_existing):
+    def fetch(self, overwrite_existing: bool):
+        """Fetches all data for this state and writes to the state's directory under datasets.
+        Output files are in geoJSON format
+        
+        Args:
+            overwrite_existing: if True, overwrites any existing state files where there is a
+                naming collision. Otherwise, does not fetch this data.
+        """
         state_layers_output_path = self.state_output_path / "state"
         for req in self.full_state_layer_requests:
             match req.src_format:
@@ -247,7 +292,6 @@ class StateDataFetcher:
 
         for btype, data in self.additional_layers.items():
             for region_name, layers in data.items():
-                print(region_name)
                 nested_dirs = [btype, region_name]
                 output_path = _DataFetcherHelper._nested_path(self.state_output_path, nested_dirs, make_if_absent=True)
                 for layer_request in layers:
@@ -260,6 +304,7 @@ class StateDataFetcher:
 
 @typechecked
 class WADataFetcher(StateDataFetcher):
+    """Data Fetcher specific to Washington State."""
     def __init__(self):
         full_state_layer_requests = [
             _BoundaryRequestBuilder("precinct", "https://services.arcgis.com/jsIt88o09Q0r1j8h/arcgis/rest/services/Statewide_Precincts_2019General_SPS/FeatureServer/0/query", {"PrecCode": "id", "CountyName": "CountyName"}),
