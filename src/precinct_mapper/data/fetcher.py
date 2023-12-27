@@ -4,6 +4,7 @@ import io
 import json
 import tempfile
 import zipfile
+import pandas as pd
 import geopandas as gpd
 
 from typing import List, Dict
@@ -147,19 +148,36 @@ class _DataFetcherHelper:
             - all strings are converted to lowercase
         """
         try:
-            prepared_req = _DataFetcherHelper.session.prepare_request(
-                request_builder.req
-            )
-            with _DataFetcherHelper.session.send(
-                prepared_req, stream=True, timeout=timeout
-            ) as response:
-                response.raise_for_status()
-                raw_boundary_data = json.loads(response.content)
-                boundary_data = gpd.GeoDataFrame.from_features(
-                    raw_boundary_data["features"]
-                )
+            request = Request(method="GET", url=request_builder.req.url, params=request_builder.req.params)
+            result_offset = 0
+            table_parts = []
+            done_fetching = False
+            while not done_fetching:
+                request.params["resultOffset"] = result_offset
+                prepared_req = _DataFetcherHelper.session.prepare_request(request)
+                with _DataFetcherHelper.session.send(
+                    prepared_req, stream=True, timeout=timeout
+                ) as response:
+                    response.raise_for_status()
+                    raw_boundary_data = json.loads(response.content)
+                    props = raw_boundary_data.get("properties")
+                    if props:
+                        exceeded = props.get("exceededTransferLimit")
+                        if exceeded is None or exceeded == False:
+                            done_fetching = True
+                    else:
+                        done_fetching = True
+
+                    boundary_data = gpd.GeoDataFrame.from_features(
+                        raw_boundary_data["features"]
+                    )
+                num_items = len(boundary_data)
+                result_offset += num_items
+                table_parts.append(boundary_data)
+            
+            full_table = pd.concat(table_parts, ignore_index=True)
             return _DataFetcherHelper._process_frame(
-                boundary_data, request_builder.out_fields
+                full_table, request_builder.out_fields
             )
         except ConnectionError as exc:
             raise RuntimeError("Could not connect.") from exc
@@ -191,7 +209,6 @@ class _DataFetcherHelper:
             - columns are renamed according to request_builder.out_fields
             - all strings are converted to lowercase
         """
-        print("Fetching shapefile")
         try:
             prepared_req = _DataFetcherHelper.session.prepare_request(
                 request_builder.req
@@ -269,12 +286,26 @@ class _BoundaryRequestBuilder:
             case "geojson":
                 self.req = Request(
                     method="GET",
-                    url=base_url,
-                    params={
+                    url = base_url,
+                    params = {
                         "where": "1=1",
                         "outFields": ",".join(out_fields.keys()),
-                        "f": "geojson",
-                    },
+                        "geometryType": "esriGeometryEnvelope",
+                        "spatialRel": "esriSpatialRelIntersects",
+                        "units": "esriSRUnit_NauticalMile",
+                        "returnGeometry": "true",
+                        "returnTrueCurves": "false",
+                        "returnIdsOnly": "false",
+                        "returnCountOnly": "false",
+                        "returnZ": "false",
+                        "returnM": "false",
+                        "returnDistinctValues": "false",
+                        "returnExtentOnly": "false",
+                        "sqlFormat": "none",
+                        "featureEncoding": "esriDefault",
+		                "returnExceededLimitFeatures": "true",
+                        "f": "geojson"
+                    }
                 )
             case "shapefile":
                 if src_name is None:
@@ -309,6 +340,9 @@ class StateDataFetcher:
             additional layers: a map of scope (e.g., \'city\', \'county\') to
                 maps of region name to lists of boundary request builders
                 specific to data for that region.
+        
+        Raises:
+            ValueError if length of code is not 2.
 
         Note: will create a directory under datasets with the same name as the
         given code, if it does not already exist.
@@ -331,19 +365,23 @@ class StateDataFetcher:
         """
         state_layers_output_path = self.state_output_path / "state"
         for req in self.full_state_layer_requests:
-            match req.src_format:
-                case "geojson":
-                    _DataFetcherHelper._fetch_from_geojson(
-                        req,
-                        state_layers_output_path,
-                        overwrite_existing=overwrite_existing,
-                    )
-                case "shapefile":
-                    _DataFetcherHelper._fetch_from_shapefile(
-                        req,
-                        state_layers_output_path,
-                        overwrite_existing=overwrite_existing,
-                    )
+            try:
+                match req.src_format:
+                    case "geojson":
+                        _DataFetcherHelper._fetch_from_geojson(
+                            req,
+                            state_layers_output_path,
+                            overwrite_existing=overwrite_existing,
+                        )
+                    case "shapefile":
+                        _DataFetcherHelper._fetch_from_shapefile(
+                            req,
+                            state_layers_output_path,
+                            overwrite_existing=overwrite_existing,
+                        )
+            except RuntimeError as e:
+                print(f"Encountered error with { req.dst_name } at state level")
+                print(e)
 
         for btype, data in self.additional_layers.items():
             for region_name, layers in data.items():
@@ -352,19 +390,23 @@ class StateDataFetcher:
                     self.state_output_path, nested_dirs, make_if_absent=True
                 )
                 for layer_request in layers:
-                    match layer_request.src_format:
-                        case "geojson":
-                            _DataFetcherHelper._fetch_from_geojson(
-                                layer_request,
-                                output_path,
-                                overwrite_existing=overwrite_existing,
-                            )
-                        case "shapefile":
-                            _DataFetcherHelper._fetch_from_shapefile(
-                                layer_request,
-                                output_path,
-                                overwrite_existing=overwrite_existing,
-                            )
+                    try:
+                        match layer_request.src_format:
+                            case "geojson":
+                                _DataFetcherHelper._fetch_from_geojson(
+                                    layer_request,
+                                    output_path,
+                                    overwrite_existing=overwrite_existing,
+                                )
+                            case "shapefile":
+                                _DataFetcherHelper._fetch_from_shapefile(
+                                    layer_request,
+                                    output_path,
+                                    overwrite_existing=overwrite_existing,
+                                )
+                    except RuntimeError as e:
+                        print(f"Encountered error with { layer_request.dst_name } for { region_name } at { btype } level")
+                        print(e)
 
 
 @typechecked
@@ -429,6 +471,13 @@ class WADataFetcher(StateDataFetcher):
                         "county_council_district",
                         "https://gisdata.kingcounty.gov/arcgis/rest/services/OpenDataPortal/district___base/MapServer/185/query",
                         {"kccdst": "id"},
+                    )
+                ],
+                "snohomish": [
+                    _BoundaryRequestBuilder(
+                        "county_court",
+                        "https://services6.arcgis.com/z6WYi9VRHfgwgtyW/arcgis/rest/services/Court_Districts/FeatureServer/0/query",
+                        {"District": "id"}
                     )
                 ]
             },
