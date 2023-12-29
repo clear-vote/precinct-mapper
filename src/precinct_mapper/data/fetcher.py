@@ -4,6 +4,7 @@ import io
 import json
 import tempfile
 import zipfile
+import pyproj
 import pandas as pd
 import geopandas as gpd
 
@@ -12,6 +13,8 @@ from pathlib import Path
 from requests import Request, Session
 from requests.exceptions import ConnectionError, Timeout, RequestException
 from typeguard import typechecked
+from functools import partial
+from shapely.ops import transform
 
 
 @typechecked
@@ -67,6 +70,19 @@ class _DataFetcherHelper:
         if overwrite_existing or not file_output_path.exists():
             with open(file_output_path, "w") as file:
                 file.write(data.to_json())
+
+    @staticmethod
+    def _fetch_from_gdb(
+        request_builder: _BoundaryRequestBuilder,
+        output_path: Path,
+        overwrite_existing: bool = False,
+    ):
+        data = _DataFetcherHelper._get_boundaries_from_gdb(request_builder)
+        file_output_path = output_path / f"{ request_builder.dst_name }.geojson"
+        if overwrite_existing or not file_output_path.exists():
+            with open(file_output_path, "w") as file:
+                file.write(data.to_json())
+
 
     @staticmethod
     def _nested_path(
@@ -160,6 +176,9 @@ class _DataFetcherHelper:
                 ) as response:
                     response.raise_for_status()
                     raw_boundary_data = json.loads(response.content)
+                    error = raw_boundary_data.get("error")
+                    if error:
+                        raise RuntimeError(f"Could not process query: {error}")
                     props = raw_boundary_data.get("properties")
                     if props:
                         exceeded = props.get("exceededTransferLimit")
@@ -235,9 +254,60 @@ class _DataFetcherHelper:
             raise RuntimeError("Request timed out.") from exc
         except RequestException as exc:
             raise RuntimeError(f"An error occurred: {exc}") from exc
+        
+    @staticmethod
+    def _get_boundaries_from_gdb(request_builder: _BoundaryRequestBuilder, timeout: int = 10) -> gpd.GeoDataFrame:
+        """Returns a GeoPandas GeoDataFrame of the location data found by querying
+        the URL for a zip archive of shapefile data from the given request builder.
+        Will give up after the given timeout in seconds.
+
+        Args:
+            request_builder: used to prepare the url to query.
+            timeout: an integer number of seconds to wait for a response
+                before quitting.
+
+        Raises:
+            RuntimeError: if could not connect to host with the given url or
+                request timed out or another request error was faced
+
+        Note that the queried data is processed using the information in request builder.
+        Specifically:
+            - only geometry column and columns in request_builder.out_fields.keys() are kept
+            - columns are renamed according to request_builder.out_fields
+            - all strings are converted to lowercase
+        """
+        try:
+            prepared_req = _DataFetcherHelper.session.prepare_request(
+                request_builder.req
+            )
+            with _DataFetcherHelper.session.send(
+                prepared_req, stream=True, timeout=timeout
+            ) as response:
+                response.raise_for_status()
+                with tempfile.TemporaryDirectory(
+                    dir=_DataFetcherHelper.temppath
+                ) as tmpdir:
+                    with zipfile.ZipFile(io.BytesIO(response.content), "r") as zip_ref:
+                        zip_ref.extractall(tmpdir)
+                    subdirectory = next(Path(tmpdir).iterdir())
+                    gdb = next(subdirectory.glob('*.gdb'))
+
+                    boundary_data = gpd.read_file(
+                        gdb,
+                        layer=request_builder.src_name
+                    )
+            return _DataFetcherHelper._process_frame(
+                boundary_data, request_builder.out_fields
+            )
+        except ConnectionError as exc:
+            raise RuntimeError("Could not connect.") from exc
+        except Timeout as exc:
+            raise RuntimeError("Request timed out.") from exc
+        except RequestException as exc:
+            raise RuntimeError(f"An error occurred: {exc}") from exc
 
     def _process_frame(
-        frame: gpd.GeoDataFrame, out_fields: Dict[str, str], lower: bool = True
+        frame: gpd.GeoDataFrame, out_fields: Dict[str, str], lower: bool = True, project_to_84: bool = False
     ) -> gpd.GeoDataFrame:
         """Returns a GeoDataFrame with limited, renamed columnset and lowercase strings
         if specified.
@@ -246,7 +316,13 @@ class _DataFetcherHelper:
             frame: GeoDataFrame to process
             out_fields: maps source column names to output column names
             lower: if True, converts all strings to lowercase
+
+        Note: if given frame has no crs, this function will set it to \'epsg:4326\' for WGS84
         """
+        if frame.crs is None:
+            frame.set_crs("epsg:4326")
+        if project_to_84:
+            frame.to_crs("epsg:4326", inplace=True)
         new_frame = frame[list(out_fields.keys()) + ["geometry"]]
         new_frame = new_frame.rename(out_fields, axis=1)
         if lower:
@@ -290,7 +366,7 @@ class _BoundaryRequestBuilder:
                     params = {
                         "where": "1=1",
                         "outFields": ",".join(out_fields.keys()),
-                        "geometryType": "esriGeometryEnvelope",
+                        "geometryType": "esriGeometryPolygon",
                         "spatialRel": "esriSpatialRelIntersects",
                         "units": "esriSRUnit_NauticalMile",
                         "returnGeometry": "true",
@@ -299,6 +375,7 @@ class _BoundaryRequestBuilder:
                         "returnCountOnly": "false",
                         "returnZ": "false",
                         "returnM": "false",
+                        "outSR": "{\"wkid\": 4326}",
                         "returnDistinctValues": "false",
                         "returnExtentOnly": "false",
                         "sqlFormat": "none",
@@ -310,6 +387,10 @@ class _BoundaryRequestBuilder:
             case "shapefile":
                 if src_name is None:
                     raise ValueError("Format 'shapefile' requires argument 'src_name'")
+                self.req = Request(method="GET", url=base_url)
+            case "gdb":
+                if src_name is None:
+                    raise ValueError("Format 'gdb' requires argument 'src_name'")
                 self.req = Request(method="GET", url=base_url)
             case _:
                 raise ValueError(
@@ -379,6 +460,12 @@ class StateDataFetcher:
                             state_layers_output_path,
                             overwrite_existing=overwrite_existing,
                         )
+                    case "gdb":
+                        _DataFetcherHelper._fetch_from_gdb(
+                            req,
+                            state_layers_output_path,
+                            overwrite_existing=overwrite_existing,
+                        )
             except RuntimeError as e:
                 print(f"Encountered error with { req.dst_name } at state level")
                 print(e)
@@ -404,6 +491,12 @@ class StateDataFetcher:
                                     output_path,
                                     overwrite_existing=overwrite_existing,
                                 )
+                            case "gdb":
+                                _DataFetcherHelper._fetch_from_gdb(
+                                    layer_request,
+                                    output_path,
+                                    overwrite_existing=overwrite_existing,
+                                )
                     except RuntimeError as e:
                         print(f"Encountered error with { layer_request.dst_name } for { region_name } at { btype } level")
                         print(e)
@@ -418,12 +511,17 @@ class WADataFetcher(StateDataFetcher):
             _BoundaryRequestBuilder(
                 "precinct",
                 "https://services.arcgis.com/jsIt88o09Q0r1j8h/arcgis/rest/services/Statewide_Precincts_2019General_SPS/FeatureServer/0/query",
-                {"PrecCode": "id", "CountyName": "CountyName"},
+                {"OBJECTID": "id", "CountyName": "CountyName"},
             ),
             _BoundaryRequestBuilder(
                 "county",
                 "https://gis.dnr.wa.gov/site3/rest/services/Public_Boundaries/WADNR_PUBLIC_Cadastre_OpenData/FeatureServer/11/query",
                 {"JURISDICT_SYST_ID": "id", "JURISDICT_LABEL_NM": "name"},
+            ),
+            _BoundaryRequestBuilder(
+                "school_district",
+                "https://services5.arcgis.com/q9Lwq3BC8p2H6RLg/arcgis/rest/services/Washington_School_District_Boundaries/FeatureServer/0/query",
+                {"ESDNum": "id", "ShortName": "name"},
             ),
             _BoundaryRequestBuilder(
                 "city",
@@ -439,12 +537,7 @@ class WADataFetcher(StateDataFetcher):
                 "congressional_district",
                 "https://services.arcgis.com/bCYnGqM4FMTBSjd1/arcgis/rest/services/Washington_State_Congressional_Districts_2022/FeatureServer/0/query",
                 {"ID": "id", "DISTRICT": "name"},
-            ),
-            _BoundaryRequestBuilder(
-                "water_district",
-                "https://services8.arcgis.com/rGGrs6HCnw87OFOT/arcgis/rest/services/Drinking_Water_Service_Areas/FeatureServer/0/query",
-                {"OBJECTID": "id", "WS_Name": "name"},
-            ),
+            )
         ]
         additional_layers = {
             "city": {
@@ -453,17 +546,22 @@ class WADataFetcher(StateDataFetcher):
                         "city_council_district",
                         "https://services.arcgis.com/ZOyb2t4B0UYuYNYH/arcgis/rest/services/Seattle_City_Council_Districts_2024/FeatureServer/0/query",
                         {"C_DISTRICT": "id", "DISPLAY_NAME": "name"},
+                    ),
+                    _BoundaryRequestBuilder(
+                        "school_board_director_district",
+                        "https://gisdata.kingcounty.gov/arcgis/rest/services/OpenDataPortal/district___base/MapServer/406/query",
+                        {"DIRDST": "id", "NAME": "name"}
                     )
                 ],
                 "bellingham": [
                     _BoundaryRequestBuilder(
                         "ward",
-                        "https://data.cob.org/data/gis/SHP_Files/COB_plan_shps.zip",
-                        {"GLOBALID": "id", "WARD_NUMBE": "name"},
-                        src_format="shapefile",
-                        src_name="COB_plan_Wards",
+                        "https://data.cob.org/data/gis/FGDB_Files/COB_Planning.gdb.zip",
+                        {"GLOBALID": "id", "WARD_NUMBER": "name"},
+                        src_format="gdb",
+                        src_name="plan_Wards",
                     )
-                ],
+                ]
             },
             "county": {
                 "king": [
@@ -478,6 +576,30 @@ class WADataFetcher(StateDataFetcher):
                         "county_court",
                         "https://services6.arcgis.com/z6WYi9VRHfgwgtyW/arcgis/rest/services/Court_Districts/FeatureServer/0/query",
                         {"District": "id"}
+                    )
+                ],
+                "kitsap": [
+                    _BoundaryRequestBuilder(
+                        "port_district",
+                        "https://services6.arcgis.com/qt3UCV9x5kB4CwRA/arcgis/rest/services/Port_District_Outlines/FeatureServer/0/query",
+                        {"DISTRICT": "name"}
+                    ),
+                    _BoundaryRequestBuilder(
+                        "county_comissioner_district",
+                        "https://services6.arcgis.com/qt3UCV9x5kB4CwRA/arcgis/rest/services/County_Commissioner_District_Outlines/FeatureServer/0/query",
+                        {"DISTRICT": "name"}
+                    ),
+                    _BoundaryRequestBuilder(
+                        "port_comissioner_district",
+                        "https://services6.arcgis.com/qt3UCV9x5kB4CwRA/arcgis/rest/services/Port_Commissioner_District_Outlines/FeatureServer/0/query",
+                        {"DISTRICT": "name"}
+                    ),
+                ],
+                "pierce": [
+                    _BoundaryRequestBuilder(
+                        "county_council_district",
+                        "https://services2.arcgis.com/1UvBaQ5y1ubjUPmd/arcgis/rest/services/Pierce_County_Council_Districts/FeatureServer/0/query",
+                        {"District_Number": "id", "Maplabel": "name", "council_homepage": "council_homepage"}
                     )
                 ]
             },
