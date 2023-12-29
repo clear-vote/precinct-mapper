@@ -47,7 +47,7 @@ class StateParser:
             return MultiPolygon(out_polys)
 
 
-    def parse(self, starter: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
+    def parse(self) -> gpd.GeoDataFrame:
         datatable = gpd.read_file(self.precinct_filepath)
         datatable["geometry"] = datatable["geometry"].apply(StateParser._process_holes)
         datatable["precinct"] = datatable.apply(
@@ -69,8 +69,6 @@ class StateParser:
                     lambda row: StateParser._get_bounding_region(row["geometry"], region_table),
                     axis=1
                 )
-        # return datatable
-        # datatable = starter
         print()
         print("DONE FETCHING STATE LEVEL")
         print()
