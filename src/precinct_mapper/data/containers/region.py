@@ -63,4 +63,9 @@ class Region:
     def __str__(self):
         """Returns a simple stringified version of this region containing
         type, name, and identifier."""
-        return f"type: {self.type}, name: {self.name}, identifier: {self.identifier}"
+        return f"type: {self.btype}, name: {self.name}, identifier: {self.identifier}"
+    
+    def __eq__(self, other):
+        if not isinstance(other, Region):
+            return False
+        return (self.btype == other.btype) and (self.name == other.name) and (self.boundary == other.boundary)
