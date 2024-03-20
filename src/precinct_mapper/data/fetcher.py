@@ -93,18 +93,10 @@ class GeoWriter:
         return output_dir / f"{name}.{fileformat}"
 
     @staticmethod
-    def write(boundaries: gpd.GeoDataFrame, output_dir: Path, name: str, fileformat: str = "pickle"):
-        output_path = GeoWriter.output_path(output_dir, name, fileformat)
+    def write(boundaries: gpd.GeoDataFrame, output_dir: Path, output_filename: str, name: str):
+        output_path = output_dir / f"{output_filename}.gpkg"
         GeoWriter._handle_not_exists(output_dir, make_if_absent=True)
-        match fileformat:
-            case "pickle":
-                with open(output_path, "wb") as out_file:
-                    boundaries.to_pickle(out_file)
-            case _:
-                with open(output_path, "w") as out_file:
-                    boundaries.to_file(out_file)
-
-    
+        boundaries.to_file(output_path, layer=name, driver="GPKG")
 
     @staticmethod
     def nested_path(base: Path, subdirs: List[str], make_if_absent: bool = False) -> Path:
@@ -339,7 +331,7 @@ class StateDataFetcher:
         for name, fetcher in self.full_state_fetchers:
             print(name)
             geodata = fetcher.fetch()
-            GeoWriter.write(geodata, state_layers_output_path, name, fileformat="gpkg")
+            GeoWriter.write(geodata, state_layers_output_path, name, name)
             # try:                
             # except RuntimeError as e:
             #     warnings.warn(
@@ -354,7 +346,7 @@ class StateDataFetcher:
                 for name, layer_fetcher in layers:
                     print(btype, region_name, name)
                     geodata = layer_fetcher.fetch()
-                    GeoWriter.write(geodata, output_dir, name, fileformat="gpkg")
+                    GeoWriter.write(geodata, output_dir, name, name)
                     # try:
                     # except RuntimeError as e:
                     #     warnings.warn(
