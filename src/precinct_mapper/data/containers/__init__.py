@@ -1,5 +1,4 @@
-from .region import Region
-from .precinct import Precinct
-from .state import State
+from containers.region import Region
+from containers.state import State
 
-__all__ = ["Region", "Precinct", "State"]
+__all__ = ["Region", "State"]

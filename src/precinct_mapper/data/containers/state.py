@@ -1,64 +1,84 @@
-from shapely.geometry import MultiPolygon, Polygon, Point
-from . import Region, Precinct
+from __future__ import annotations
+import pickle
+from math import isnan
+from shapely.geometry import Point
+from . import Region
 from geopandas import GeoDataFrame
-from typing import List
+from typing import Dict
+from pathlib import Path
 
-class State(Region):
-    """A class to represent a state, its boundary, and counties."""
-    def __init__(
-        self, name: str, boundary: Polygon | MultiPolygon, additional_columns: List[str] = []
-    ):
-        """Initializes State object with btype of \'state\'.
-        By default, 
+class State:
+    """A class to represent a state that the client can request district info from."""
+    
+    def __init__(self, tables: Dict[str, GeoDataFrame], precinct_lookup_table: GeoDataFrame):
+        """Initializes State object with the given region and lookup tables.
 
         Args:
-            name: name of the boundary
-            boundary: shape of this state's boundary
+            tables: a dictionary mapping a btype (e.g., \"school_district\")
+                    to its boundaries
+            precinct_lookup_table: a geo dataframe where the \"
         """
-        super().__init__("state", name, boundary)
-        self.geotable = GeoDataFrame(
-            columns=[
-                "precinct",
-                "precinct_geometry",
-                "legislative_district",
-                "congressional_district",
-                "school_district",
-                "county",
-                "city"
-                ] + additional_columns,
-                geometry="precinct_geometry"
-        )
+        self.tables = tables
+        self.lookup_table = precinct_lookup_table
+        self.btypes = list(tables.keys())
 
-    # def get_county_names(self) -> List[str]:
-    #     """Returns the names of all counties in this state in ascending order"""
-    #     return sorted(list(self.counties["name"]))
+    @staticmethod
+    def from_cache(filepath: str | Path) -> State:
+        """Loads a state object from the given pickled State object.
+        
+        Args:
+            filepath: path to pickled file.
+        
+        Returns:
+            state object from unpickling the file with the given filepath.
+        """
+        with open(filepath, "rb") as f:
+            s = pickle.load(f)
+        return s
     
-    # def get_county_by_coordinate(self, coord: Point) -> County:
-    #     """Returns the County that contains the given coordinates.
+    def to_cache(self, filepath: str | Path):
+        """Pickles the current state object at the given filepath.
         
-    #     Args:
-    #         coord: coordinates to locate containing county of
+        Args:
+            filepath: path to write pickle.
+        """
+        with open(filepath, "wb") as f:
+            pickle.dump(self, f)
 
-    #     Raises:
-    #         LookupError: if no county in this state contains the given coordinates
-    #     """
-    #     for county in self.counties:
-    #         if county.contains(coord):
-    #             return county
-    #     raise LookupError(f"Could not find county containing coordinates: { coord }")
-
-    # def get_county_by_name(self, county_name: str) -> County:
-    #     """Returns the County in this state with the given name"""
-    #     if county_name not in self.counties["name"]:
-    #         raise LookupError(f"Could not find county with name: { county_name }. Try one of {list(self.counties['name'])}")
-        
-    #     return self.counties.loc[self.counties["name"] == county_name].iloc[0]
-
-    # def get_precinct(self, coord: Point) -> Precinct:
-    #     county = self.get_county()
-    #     return county.get_precinct(coord)
-
-    # def add_county(self, county: County):
-    #     if county.name in self.counties["name"]:
-    #         raise ValueError(f"Given county ('{ county }') is already in this state")
-    #     self.counties[len(self.counties)] = [county.name, county, county.boundary]
+    def lookup_lat_lon(self, lat: float, lon: float) -> Dict[str, Region]:
+        """Looks up the given (latitude, longitude) """
+        pt = Point(lat, lon)
+        return self.lookup_point(pt)
+    
+    def lookup_point(self, pt: Point):
+        lookup_result = self.lookup_table.loc[self.lookup_table.contains(pt)]
+        if len(lookup_result) == 0:
+            raise LookupError(f"Could not find precinct for coordinates:\n" + \
+                              f"Latitude: {pt.x}, Longitude: {pt.y}")
+        elif len(lookup_result) > 1:
+            raise LookupError(f"Too many precincts found for coordinates:\n" + \
+                              f"Latitude: {pt.x}, Longitude: {pt.y}")
+        # successful lookup, retrieve all boundary info
+        single_result = lookup_result.iloc[0]
+        boundary_info = {}
+        boundary_info["precinct"] = Region("precinct",
+                                            str(single_result["id"]),
+                                            single_result["geometry"],
+                                            single_result["id"])
+        for btype in self.btypes:
+            btype_id = single_result[btype]
+            if isnan(btype_id) or btype_id is None:
+                boundary_info[btype] = None
+            else:
+                boundary_info[btype] = self._lookup_btype_id(btype, int(btype_id))
+        return boundary_info
+    
+    def _lookup_btype_id(self, btype: str, id: int):
+        if btype not in self.btypes:
+            raise ValueError(f"Boundary type {btype} is not one of {self.btypes}.")
+        btable = self.tables[btype]
+        try:
+            result = btable.iloc[id]
+        except IndexError as ie:
+            raise LookupError(f"Could not find {btype} with id {id}. Found {len(result)}.") from ie
+        return Region(btype, result["name"], result["geometry"], identifier=result["id"])
