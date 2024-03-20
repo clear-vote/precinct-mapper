@@ -1,25 +1,32 @@
+from __future__ import annotations
+import shutil
 import geopandas as gpd
 import pandas as pd
 from pathlib import Path
 from shapely.geometry.point import Point
 from shapely.geometry.polygon import Polygon
 from shapely.geometry.multipolygon import MultiPolygon
-# import Polygon, MultiPolygon, Point
-from . import Region
-import matplotlib.pyplot as plt
-# from typeguard import typechecked
+from typing import Collection, Dict, List
+from typeguard import typechecked
+from containers import Region, State
 
-# @typechecked
+@typechecked
 class StateParser:
     datapath = Path(__file__).parent / "datasets"
 
     def __init__(self, code: str):
         if len(code) != 2:
-            raise ValueError(f"State codes must be two letters. Got: '{ code }'")
+            raise ValueError(f"State codes must be two letters. Got: \'{ code }\'")
         self.code = code.upper()
-        self.state_datapath = StateParser.datapath / self.code
-
-        self.precinct_filepath = self.state_datapath / "state" / "precinct.geojson"
+        self.state_all_datapath = StateParser.datapath / self.code
+        assert self.state_all_datapath.is_dir()
+        self.state_tables_datapath = self.state_all_datapath / "state"
+        assert self.state_tables_datapath.is_dir()
+        self.region_tables_datapath = self.state_all_datapath / "region_tables"
+        if not self.region_tables_datapath.exists():
+            self.region_tables_datapath.mkdir()
+        assert self.region_tables_datapath.is_dir()
+        self.precinct_filepath = self.state_tables_datapath / "precinct.gpkg"
         if not self.precinct_filepath.exists():
             raise FileNotFoundError(f"Precincts file not found at { self.precinct_filepath }. Ensure it has been fetched")
     
@@ -46,62 +53,73 @@ class StateParser:
                 out_polys.append(e)
             return MultiPolygon(out_polys)
 
+    def parse(self, recompile: bool = False) -> State:
+        if recompile:
+            self._invert_regional_data()
 
-    def parse(self) -> gpd.GeoDataFrame:
-        datatable = gpd.read_file(self.precinct_filepath)
-        datatable["geometry"] = datatable["geometry"].apply(StateParser._process_holes)
-        datatable["precinct"] = datatable.apply(
-            lambda row: StateParser._row_to_region("precinct", datatable.columns, row),
-            axis=1
-        )
-        datatable = datatable[["geometry", "precinct"]]
-        full_state_datapath = self.state_datapath / "state"
-        for file in full_state_datapath.iterdir():
-            if file.stem != "precinct":
-                cur_table = gpd.read_file(file)
-                cur_table["geometry"] = cur_table["geometry"].apply(StateParser._process_holes)
-                cur_table["region"] = cur_table.apply(
-                    lambda row: StateParser._row_to_region(file.stem, cur_table.columns, row),
-                    axis=1
-                )
-                region_table = cur_table[["geometry", "region"]]
-                datatable[file.stem] = datatable.apply(
-                    lambda row: StateParser._get_bounding_region(row["geometry"], region_table),
-                    axis=1
-                )
-        print()
-        print("DONE FETCHING STATE LEVEL")
-        print()
-        for scope_dir in self.state_datapath.iterdir():
-            if scope_dir.is_dir() and scope_dir.name != "state":
-                print(f"btype {scope_dir}")
-                for region_dir in scope_dir.iterdir():
-                    print(f"\tregion {region_dir}")
-                    if region_dir.is_dir():
-                        region_rows = datatable[datatable[scope_dir.name].apply(lambda region: False if region is None else region.name == region_dir.name)]
-                        for btype_file in region_dir.iterdir():
-                            if btype_file.is_file() and btype_file.suffix == ".geojson":
-                                btype = btype_file.stem
-                                print(f"\t\t{btype_file.absolute}")
-                                with open(btype_file, "r") as layer_file:
-                                    layer_table = gpd.read_file(layer_file)
-                                    layer_table["geometry"] = layer_table["geometry"].apply(StateParser._process_holes)
-                                    layer_table["region"] = layer_table.apply(
-                                        lambda row: StateParser._row_to_region(btype, layer_table.columns, row),
-                                        axis=1
-                                    )
-                                    # print(layer_table.info())
-                                    boundaries = region_rows.apply(
-                                        lambda row: StateParser._get_bounding_region(row["geometry"], layer_table),
-                                        axis=1
-                                    )
-                                    # print(boundaries)
-                                    if btype not in datatable.columns:
-                                        datatable[btype] = None
-                                    datatable[btype].fillna(boundaries, inplace=True)
-                                    # datatable.merge(boundaries, left_index=True, right_index=True, how="left")
-                                    
-        return datatable
+        state_tables = StateParser._read_directory_tables(self.state_tables_datapath,
+                                                          exclude=["precinct"])
+        region_tables = StateParser._read_directory_tables(self.region_tables_datapath)
+        all_tables = state_tables | region_tables
+
+        precincts = gpd.read_file(self.precinct_filepath)
+        precincts["geometry"] = precincts["geometry"].apply(StateParser._process_holes)
+
+        precincts_filled = precincts
+        for btype, binfo in all_tables.items():
+            precincts_filled[btype] = precincts_filled.apply(lambda row: StateParser._get_bounding_region_index(row["geometry"], binfo), axis=1)
+        
+        return State(all_tables, precincts_filled)
+            
+    def _invert_regional_data(self):
+        shutil.rmtree(self.region_tables_datapath)
+        self.region_tables_datapath.mkdir()
+        for scope in self.state_all_datapath.iterdir():
+            if scope.is_dir() and scope.stem not in ("state", "region_tables"):
+                for region_name in scope.iterdir():
+                    if region_name.is_dir():
+                        for boundary in region_name.glob("*.gpkg"):
+                            boundary_outpath = self.region_tables_datapath / f"{ boundary.stem }.gpkg"
+                            table = None
+                            new_boundary_table = gpd.read_file(boundary)
+                            new_boundary_table["region_name"] = region_name.stem
+                            new_boundary_table["scope"] = scope.stem
+                            if boundary_outpath.exists():
+                                existing_table = gpd.read_file(boundary_outpath)
+                                tables = [existing_table, new_boundary_table]
+                                table = gpd.GeoDataFrame(pd.concat(tables, ignore_index=True), crs=tables[0].crs)
+                            else:
+                                table = new_boundary_table
+                            table.to_file(boundary_outpath)
+
+    @staticmethod
+    def _read_directory_tables(dirpath: str | Path,
+                               filepattern: str = "*.gpkg",
+                               exclude: Collection[str] = []) -> Dict[str, gpd.GeoDataFrame]:
+        if isinstance(dirpath, str):
+            dirpath = Path(dirpath)
+        if not (dirpath.exists() and dirpath.is_dir()):
+            raise ValueError("Given directory path is not valid")
+        tables = {}
+        for file in dirpath.glob(filepattern):
+            if file.stem not in exclude:
+                table = gpd.read_file(file)
+                table["geometry"] = table["geometry"].apply(StateParser._process_holes)
+                tables[file.stem] = table
+        return tables
+    
+    @staticmethod
+    def _read(filepath: Path):
+        if not filepath.is_file():
+            raise ValueError(f"Given path must be for a file. Got { filepath }")
+        
+        match filepath.suffix:
+            case ".gpkg":
+                return gpd.read_file(filepath, layer=filepath.stem)
+            case ".pkl":
+                return pd.read_pickle(filepath)
+            case _:
+                return gpd.read_file(filepath)
     
     @staticmethod
     def _validate_boundary_results(results: gpd.GeoDataFrame, point: Point) -> Region | None:
@@ -110,12 +128,9 @@ class StateParser:
             return None
         elif nrows > 1:
             results.plot(figsize=(15, 12), color=["lightblue", "purple"], edgecolor="black", alpha=0.2)
-            # plt.scatter(point.x, point.y, marker="o", color="red", ax=ax)
             print(results.iloc[0]["geometry"].contains(results.iloc[1]["geometry"]), results.iloc[0]["geometry"].within(results.iloc[1]["geometry"]))
             raise RuntimeError(f"Multiple boundaries contained {point}: {results['region']}.")
         
-        # print("boundary results")
-        # print(results)
         return results.iloc[0]["region"]
             
     @staticmethod
@@ -160,3 +175,37 @@ class StateParser:
         if key in column_names:
             return row[column_names]
         return None
+
+    @staticmethod
+    def _validate_boundary_index_results(results: List[int], binfo: gpd.GeoDataFrame, point: Point) -> int | None:
+        nrows = len(results)
+        if nrows == 0:
+            return None
+        elif nrows > 1:
+            multi_match_rows = binfo.iloc[results]
+            raise RuntimeError(f"Multiple boundaries contained {point}: {multi_match_rows}.")
+        return results[0]
+    
+    @staticmethod   
+    def _get_bounding_region_index_point(point: Point, binfo: gpd.GeoDataFrame) -> int | None:
+        containing = binfo.index[binfo.contains(point)].to_list()
+        return StateParser._validate_boundary_index_results(containing, binfo, point)
+
+    @staticmethod
+    def _get_bounding_region_index(shape: Point | Polygon | MultiPolygon, binfo: gpd.GeoDataFrame) -> int | None:
+        if not "geometry" in binfo:
+            raise ValueError(f"Given regions table is missing one of the columns [\'geometry\']. Given columns: {list(binfo.columns)}")
+
+        if isinstance(shape, Point):
+            return StateParser._get_bounding_region_index_point(shape, binfo)
+        elif isinstance(shape, MultiPolygon):
+            polygon = max(shape.geoms, key = lambda p: p.area) # get the largest polygon
+        elif isinstance(shape, Polygon):
+            polygon = shape
+        else:
+            raise ValueError(f"shape type { type(shape) } is not valid.")
+        point = polygon.centroid
+        if not point.within(polygon):
+            point = polygon.representative_point()
+    
+        return StateParser._get_bounding_region_index_point(point, binfo)
