@@ -137,8 +137,9 @@ class State:
         pt = Point(lat, lon)
         return self.lookup_point(pt)
     
-    def lookup_point(self, pt: Point):
-        lookup_result = self.lookup_table.loc[self.lookup_table.contains(pt)]
+    def lookup_point(self, pt: Point): # pt = coord as (long, lat)
+        lat_lon = Point(pt.y, pt.x)
+        lookup_result = self.lookup_table.loc[self.lookup_table.contains(lat_lon)]
         if len(lookup_result) == 0:
             raise LookupError(f"Could not find precinct for coordinates:\n" + \
                               f"Latitude: {pt.x}, Longitude: {pt.y}")
