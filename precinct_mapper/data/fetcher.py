@@ -319,7 +319,7 @@ class StateDataFetcher:
         self.full_state_fetchers = full_state_fetchers
         self.additional_fetchers = additional_fetchers
 
-    def fetch(self, format: str = "pickle"):
+    def fetch(self):
         """Fetches all data for this state and writes to the state's directory under datasets.
         Output files are in geoJSON format
 
