@@ -8,7 +8,7 @@ from shapely.geometry.polygon import Polygon
 from shapely.geometry.multipolygon import MultiPolygon
 from typing import Collection, Dict, List
 from typeguard import typechecked
-from containers import Region, State
+from precinct_mapper.data.containers import Region, State
 
 @typechecked
 class StateParser:
