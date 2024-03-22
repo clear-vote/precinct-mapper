@@ -1,0 +1,31 @@
+[tool.poetry]
+name = "precinct-mapper"
+version = "0.1.0"
+description = "A Python Package to preprocess voting precinct and district geodata and make it easy to query. Currently restricted to WA state."
+authors = ["Anaya Pandit <anaya.pandit7924@gmail.com>"]
+license = "MIT"
+readme = "README.md"
+repository = "https://github.com/clear-vote/precinct-mapper"
+keywords = ["precinct", "geodata", "geopandas", "boundary"]
+
+[tool.poetry.dependencies]
+python = "^3.11"
+geopandas = "^0.14.3"
+pandas = "^2.2.1"
+shapely = "^2.0.3"
+typeguard = "^4.1.5"
+
+[tool.poetry.group.dev.dependencies]
+geopandas = "^0.14.3"
+pandas = "^2.2.1"
+shapely = "^2.0.3"
+typeguard = "^4.1.5"
+jupyter = "^1.0.0"
+ipykernel = "^6.29.3"
+folium = "^0.16.0"
+matplotlib = "^3.8.3"
+black = "^24.3.0"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
