@@ -44,28 +44,38 @@ class State:
         """
         with open(filepath, "wb") as f:
             pickle.dump(self, f)
-
+    
+    def lookup_lat_lon_as_dict(self, lat: float, lon: float) -> Dict[str, Dict[str, any]]:
+        regions_result = self.lookup_lat_lon(lat, lon)
+        result = {}
+        for btype, region in regions_result.items():
+            if region is None:
+                result[btype] = None
+            else:
+                result[btype] = region.as_dict()
+        return result
+    
     def lookup_lat_lon(self, lat: float, lon: float) -> Dict[str, Region]:
         """Looks up the given (latitude, longitude) """
         pt = Point(lat, lon)
-        return self.lookup_point(pt)
+        return self._lookup_point(pt)
     
-    def lookup_point(self, pt: Point): # pt = coord as (long, lat)
-        lat_lon = Point(pt.y, pt.x)
-        lookup_result = self.lookup_table.loc[self.lookup_table.contains(lat_lon)]
+    def _lookup_point(self, pt: Point): # pt = coord as (lat, long)
+        long_lat = Point(pt.y, pt.x)
+        lookup_result = self.lookup_table.loc[self.lookup_table.contains(long_lat)]
         if len(lookup_result) == 0:
             raise LookupError(f"Could not find precinct for coordinates:\n" + \
-                              f"Latitude: {pt.x}, Longitude: {pt.y}")
+                              f"Latitude: {long_lat.y}, Longitude: {long_lat.x}")
         elif len(lookup_result) > 1:
             raise LookupError(f"Too many precincts found for coordinates:\n" + \
-                              f"Latitude: {pt.x}, Longitude: {pt.y}")
+                              f"Latitude: {long_lat.y}, Longitude: {long_lat.x}")
         # successful lookup, retrieve all boundary info
         single_result = lookup_result.iloc[0]
         boundary_info = {}
         boundary_info["precinct"] = Region("precinct",
-                                            str(single_result["id"]),
-                                            single_result["geometry"],
-                                            single_result["id"])
+                                           single_result.get("name"),
+                                           single_result.get("geometry"),
+                                           single_result.get("id"))
         for btype in self.btypes:
             btype_id = single_result[btype]
             if isnan(btype_id) or btype_id is None:
