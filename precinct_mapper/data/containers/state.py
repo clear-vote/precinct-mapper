@@ -142,6 +142,16 @@ class State:
             else:
                 result[btype] = region.as_dict()
         return result
+        
+    def lookup_lat_lon_as_dict(self, lat: float, lon: float) -> Dict[str, Dict[str, any]]:
+        regions_result = self.lookup_lat_lon(lat, lon)
+        result = {}
+        for btype, region in regions_result.items():
+            if region is None:
+                result[btype] = None
+            else:
+                result[btype] = region.as_dict()
+        return result
     
     def lookup_lat_lon(self, lat: float, lon: float) -> Dict[str, Region]:
         """Looks up the given (latitude, longitude) """
