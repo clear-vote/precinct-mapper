@@ -29,29 +29,6 @@ class StateParser:
         self.precinct_filepath = self.state_tables_datapath / "precinct.gpkg"
         if not self.precinct_filepath.exists():
             raise FileNotFoundError(f"Precincts file not found at { self.precinct_filepath }. Ensure it has been fetched")
-    
-    @staticmethod
-    def _process_holes(shape: Polygon | MultiPolygon):
-        if isinstance(shape, Polygon):
-            return shape
-        elif isinstance(shape, MultiPolygon):
-            polys = shape.geoms
-            exts = []
-            holes = []
-
-            for p in polys:
-                if p.exterior.is_ccw:
-                    holes.append(p)
-                else:
-                    exts.append(p)
-            
-            out_polys = []
-            for e in exts:
-                for h in holes:
-                    if h.within(e):
-                        e = e.difference(h)
-                out_polys.append(e)
-            return MultiPolygon(out_polys)
 
     def parse(self, recompile: bool = False) -> State:
         if recompile:
@@ -60,10 +37,10 @@ class StateParser:
         state_tables = StateParser._read_directory_tables(self.state_tables_datapath,
                                                           exclude=["precinct"])
         region_tables = StateParser._read_directory_tables(self.region_tables_datapath)
-        all_tables = state_tables | region_tables
+        all_tables = state_tables
+        all_tables.update(region_tables)
 
         precincts = gpd.read_file(self.precinct_filepath)
-        precincts["geometry"] = precincts["geometry"].apply(StateParser._process_holes)
 
         precincts_filled = precincts
         for btype, binfo in all_tables.items():
@@ -104,7 +81,6 @@ class StateParser:
         for file in dirpath.glob(filepattern):
             if file.stem not in exclude:
                 table = gpd.read_file(file)
-                table["geometry"] = table["geometry"].apply(StateParser._process_holes)
                 tables[file.stem] = table
         return tables
     
