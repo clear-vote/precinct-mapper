@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "precinct-mapper"
-version = "0.1.0"
+version = "0.1.0-beta"
 description = "A Python Package to preprocess voting precinct and district geodata and make it easy to query. Currently restricted to WA state."
 authors = ["Anaya Pandit <anaya.pandit7924@gmail.com>"]
 license = "MIT"
