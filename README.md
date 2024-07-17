@@ -50,3 +50,30 @@ cp -r venv/lib/python3.x/site-packages/* my-deployment-package/
 Amazon RDS (Relational Database Service): To host your MySQL database.
 Amazon S3: To store static assets or backup data if needed.
 AWS IAM (Identity and Access Management): To manage access and permissions securely.
+
+Add this route and test with different coordinates:
+```python
+from flask import Flask, request, jsonify
+from your_module import state_obj  # Import your state_obj from the appropriate module
+
+app = Flask(__name__)
+
+@app.route('/lookup', methods=['GET'])
+def lookup_lat_lon():
+    # Get coordinates from query parameters
+    coordinate_1 = request.args.get('coordinate_1')
+    coordinate_2 = request.args.get('coordinate_2')
+    
+    if not coordinate_1 or not coordinate_2:
+        return jsonify({'error': 'Missing coordinates'}), 400
+    
+    try:
+        # Run the command with the provided coordinates
+        result = state_obj.lookup_lat_lon(coordinate_1, coordinate_2)
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=5000)
+```
