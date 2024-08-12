@@ -1,16 +1,18 @@
 from __future__ import annotations
+import fiona
 import pickle
+import geopandas as gpd
 from math import isnan
 from shapely.geometry import Point
 from . import Region
-from geopandas import GeoDataFrame
+from json import dump
 from typing import Dict
 from pathlib import Path
 
 class State:
     """A class to represent a state that the client can request district info from."""
     
-    def __init__(self, tables: Dict[str, GeoDataFrame], precinct_lookup_table: GeoDataFrame):
+    def __init__(self, tables: Dict[str, gpd.GeoDataFrame], precinct_lookup_table: gpd.GeoDataFrame):
         """Initializes State object with the given region and lookup tables.
 
         Args:
@@ -41,9 +43,94 @@ class State:
         
         Args:
             filepath: path to write pickle.
+            
+        Raises:
+            FileNotFoundError: if directory of requested filepath does not exist.
         """
         with open(filepath, "wb") as f:
             pickle.dump(self, f)
+            
+    def to_dir(self, path: str | Path):
+        """Writes the current state object at the given path as a directory
+        with the following layout:
+        ```dirpath/
+        |--metadata.json
+        |--data.gpkg```
+        
+        If the requested directory or its parent directories do not exist,
+        they will be created.
+        
+        Args:
+            filepath: path to write pickle.
+            
+        Raises:
+            FileNotFoundError: if directory of requested filepath does not exist.
+        """
+        if isinstance(path, str):
+            path = Path(path)
+        
+        if not path.exists():
+            path.mkdir(parents=True) # make parents and self
+        
+        metadata_path = path / "metadata.json"
+        data_path = path / "data.gpkg"
+        
+        # not super necessary right now; could be expanded later
+        metadata = {
+            "boundary_types" : self.btypes
+        }
+        
+        with open(metadata_path, "w") as metadata_file:
+            dump(metadata, metadata_file)
+        
+        lookup_table_shallow_copy = self.lookup_table.copy(deep=False)
+        lookup_table_shallow_copy["index"] = lookup_table_shallow_copy.index
+        lookup_table_shallow_copy.to_file(data_path, layer="precinct", driver="GPKG")
+        
+        for btype, table in self.tables.items():
+            table_shallow_copy = table.copy(deep=False)
+            table_shallow_copy["index"] = table_shallow_copy.index
+            table_shallow_copy.to_file(data_path, layer=btype, driver="GPKG")
+    
+    @staticmethod
+    def from_dir(path: str | Path) -> State:
+        if isinstance(path, str):
+            path = Path(path)
+        
+        if not path.exists():
+            raise ValueError(f"Given path '{str(path)}' does not exist")
+
+        if not path.is_dir():
+            raise ValueError(f"Given path '{str(path)}' is not a directory")
+        
+        metadata_path = path / "metadata.json"
+        data_path = path / "data.gpkg"
+        
+        if not (metadata_path.exists() and metadata_path.is_file()):
+            raise ValueError(f"Could not find metadata.json in {str(path)}")
+
+        if not (data_path.exists() and data_path.is_file()):
+            raise ValueError(f"Could not find data.gpkg in {str(path)}")
+        
+        layers = fiona.listlayers(data_path)
+        if "precinct" not in layers:
+            raise RuntimeError(f"data.gpkg does not include required layer 'precinct'")
+        layers.remove("precinct")
+        lookup_table = State._read_layer_and_index(data_path, "precinct")
+        
+        tables = {}
+        for layer_name in layers:
+            tables[layer_name] = State._read_layer_and_index(data_path, layer_name)
+        
+        return State(tables, lookup_table)
+
+    @staticmethod
+    def _read_layer_and_index(path: Path, layer: str) -> gpd.GeoDataFrame:
+        table = gpd.read_file(path, layer=layer)
+        if "index" not in table.columns:
+            raise RuntimeError(f"{ layer } layer does not contain index column")
+        table.set_index("index", inplace=True, drop=True)
+        return table
 
     def lookup_lat_lon(self, lat: float, lon: float) -> Dict[str, Region]:
         """Looks up the given (latitude, longitude) """
