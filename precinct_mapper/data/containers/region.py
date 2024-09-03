@@ -1,4 +1,5 @@
 from __future__ import annotations
+from shapely import to_geojson
 from shapely.geometry import Point, Polygon, MultiPolygon
 from typing import Dict
 
@@ -42,9 +43,19 @@ class Region:
             or isinstance(other, MultiPolygon)
         ):
             return self.boundary.contains(other)
-        raise TypeError(
-            f"other must be one of: 'Region', 'Point', 'Polygon', 'MultiPolygon'. got: { type(other) }"
-        )
+        else:
+            raise TypeError(
+                f"other must be one of: 'Region', 'Point', 'Polygon', 'MultiPolygon'. got: { type(other) }"
+            )
+    
+    def as_dict(self) -> Dict[str, str | int | None]:
+        return {
+            "btype": self.btype,
+            "id": self.identifier,
+            "name": self.name,
+            "boundary": to_geojson(self.boundary),
+            "metadata": self.metadata
+        }        
 
     def get_data_prop(self, prop_name: str):
         """Returns the value of the property with the given name for this region.
