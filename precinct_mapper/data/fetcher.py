@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-import warnings
-import json
-import zipfile
-from geopandas.geodataframe import GeoDataFrame
-import pandas as pd
 import geopandas as gpd
+import json
+import pandas as pd
+import re
+import warnings
+import zipfile
 
 from io import BytesIO
 from tempfile import TemporaryDirectory
@@ -83,6 +83,14 @@ class _GeoFetcherBase:
             for c in new_frame.select_dtypes("object").columns:
                 new_frame[c] = new_frame[c].str.casefold()
         return new_frame
+
+# @typechecked
+# class NameExtractor():
+#     def __init__(self, pattern: str):
+#         pattern_re = re.compile(pattern)
+#         if "name" not in pattern_re.groups():
+#             raise ValueError(f"Pattern must contain a \'name\' group. Got: { pattern }")
+#         if self
 
 @typechecked
 class GeoWriter:
@@ -231,7 +239,7 @@ class ShapefileFetcher(_GeoFetcherBase):
         super().__init__(url, src_to_dst_fields)
         self.src_name = src_name
 
-    def fetch_unchecked(self, dirs: str | List[str], timeout: int = 10) -> GeoDataFrame:
+    def fetch_unchecked(self, dirs: str | List[str], timeout: int = 10) -> gpd.GeoDataFrame:
         if isinstance(dirs, str):
             pass
 
@@ -261,7 +269,7 @@ class GDBFetcher(_GeoFetcherBase):
         self.src_name = src_name
         self.layer_name = layer_name
     
-    def fetch_unchecked(self, timeout: int = 10) -> GeoDataFrame:
+    def fetch_unchecked(self, timeout: int = 10) -> gpd.GeoDataFrame:
         prepared_req = self.session.prepare_request(
             self.req
         )
