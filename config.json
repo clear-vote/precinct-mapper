@@ -1,0 +1,248 @@
+{
+  "state_code": "WA",
+  "sources": {
+    "state": {
+      "WA": [
+        {
+          "boundary_type": "precinct",
+          "source_format": "arcgis_geojson",
+          "url": "https://services.arcgis.com/jsIt88o09Q0r1j8h/arcgis/rest/services/Statewide_Precincts_2019General_SPS/FeatureServer/0/query",
+          "display_name": "Washington State Geospatial Portal",
+          "display_url": "https://geo.wa.gov/datasets/f5431071d8f74a7fb655bf0477ccfc2e_0/explore",
+          "field_mappings": {
+            "OBJECTID": {
+              "dst_field": "id"
+            },
+            "PrecCode": {
+              "dst_field": "name"
+            },
+            "CountyName": {
+              "dst_field": "county_name"
+            }
+          }
+        },
+        {
+          "boundary_type": "county",
+          "source_format": "arcgis_geojson",
+          "url": "https://gis.dnr.wa.gov/site3/rest/services/Public_Boundaries/WADNR_PUBLIC_Cadastre_OpenData/FeatureServer/11/query",
+          "display_name": "Washington State Department of Natural Resources",
+          "display_url": "https://geo.wa.gov/datasets/12712f465fc44fb58328c6e0255ca27e_11/explore",
+          "field_mappings": {
+            "JURISDICT_SYST_ID": {
+              "dst_field": "id"
+            },
+            "JURISDICT_LABEL_NM": {
+              "dst_field": "name"
+            }
+          }
+        },
+        {
+          "boundary_type": "school_district",
+          "source_format": "arcgis_geojson",
+          "url": "https://services5.arcgis.com/q9Lwq3BC8p2H6RLg/arcgis/rest/services/Washington_School_District_Boundaries/FeatureServer/0/query",
+          "display_name": "Washington Office of Supt. of Public Instruction",
+          "display_url": "https://geo.wa.gov/datasets/7318c4e2a34f4515b721d11cdf91f08a_0/explore",
+          "field_mappings": {
+            "ESDNum": {
+              "dst_field": "id"
+            },
+            "ShortName": {
+              "dst_field": "name"
+            }
+          }
+        },
+        {
+          "boundary_type": "city",
+          "source_format": "arcgis_geojson",
+          "url": "https://services2.arcgis.com/J4VMdGWiZXReffvo/arcgis/rest/services/CityLimits/FeatureServer/0/query",
+          "field_mappings": {
+            "OBJECTID": {
+              "dst_field": "id"
+            },
+            "CITY_NM": {
+              "dst_field": "name"
+            },
+            "COUNTY_NM": {
+              "dst_field": "count_name"
+            }
+          }
+        },
+        {
+          "boundary_type": "legislative_district",
+          "source_format": "arcgis_geojson",
+          "url": "https://services.arcgis.com/bCYnGqM4FMTBSjd1/arcgis/rest/services/Washington_State_Legislative_Districts_2022/FeatureServer/0/query",
+          "field_mappings": {
+            "ID": {
+              "dst_field": "id"
+            },
+            "DISTRICT": {
+              "dst_field": "name"
+            }
+          }
+        },
+        {
+          "boundary_type": "congressional_district",
+          "source_format": "geojson",
+          "url": "https://drive.google.com/uc?export=download&id=1eqXHaeqnBZw3HEW7yOJMxYCtREKnqTV-",
+          "field_mappings": {
+            "ID": {
+              "dst_field": "id"
+            },
+            "DISTRICT": {
+              "dst_field": "name"
+            }
+          }
+        }
+      ]
+    },
+    "city": {
+      "seattle": [
+        {
+          "boundary_type": "city_council_district",
+          "source_format": "arcgis_geojson",
+          "url": "https://services.arcgis.com/ZOyb2t4B0UYuYNYH/arcgis/rest/services/Seattle_City_Council_District/FeatureServer/0/query",
+          "field_mappings": {
+            "C_DISTRICT": {
+              "dst_field": "id"
+            },
+            "DISPLAY_NAME": {
+              "dst_field": "name"
+            }
+          }
+        },
+        {
+          "boundary_type": "school_board_director_district",
+          "source_format": "arcgis_geojson",
+          "url": "https://gisdata.kingcounty.gov/arcgis/rest/services/OpenDataPortal/district___base/MapServer/406/query",
+          "field_mappings": {
+            "DIRDST": {
+              "dst_field": "id"
+            },
+            "NAME": {
+              "dst_field": "name"
+            }
+          }
+        }
+      ],
+      "bellingham": [
+        {
+          "boundary_type": "gdb",
+          "source_format": "arcgis_geojson",
+          "url": "https://data.cob.org/data/gis/FGDB_Files/COB_Planning.gdb.zip",
+          "folder_name": "COB_Planning",
+          "layer_name": "plan_Wards",
+          "field_mappings": {
+            "GLOBALID": {
+              "dst_field": "id"
+            },
+            "WARD_NUMBER": {
+              "dst_field": "name"
+            }
+          }
+        }
+      ]
+    },
+    "county": {
+      "jefferson": [
+        {
+          "boundary_type": "commissioner_district",
+          "source_format": "arcgis_geojson",
+          "url": "https://gisweb.jeffcowa.us/server/rest/services/OpenData/OpenData/MapServer/26/query",
+          "field_mappings": {
+            "DISTID": {
+              "dst_field": "id"
+            },
+            "NAME": {
+              "dst_field": "name"
+            }
+          }
+        },
+        {
+          "boundary_type": "fire_district",
+          "source_format": "arcgis_geojson",
+          "url": "https://gisweb.jeffcowa.us/server/rest/services/PoliticalBoundaries/MapServer/6/query",
+          "field_mappings": {
+            "DISTRICTID": {
+              "dst_field": "id"
+            },
+            "AGENCY": {
+              "dst_field": "name"
+            }
+          }
+        }
+      ],
+      "king": [
+        {
+          "boundary_type": "county_council_district",
+          "source_format": "arcgis_geojson",
+          "url": "https://gisdata.kingcounty.gov/arcgis/rest/services/OpenDataPortal/district___base/MapServer/185/query",
+          "field_mappings": {
+            "OBJECTID": {
+              "dst_field": "id"
+            },
+            "kccdst": {
+              "dst_field": "name"
+            }
+          }
+        },
+        {
+          "boundary_type": "fire_district",
+          "source_format": "arcgis_geojson",
+          "url": "https://gisdata.kingcounty.gov/arcgis/rest/services/OpenDataPortal/district___base/MapServer/407/query",
+          "field_mappings": {
+            "FIRDST": {
+              "dst_field": "id"
+            },
+            "NAME": {
+              "dst_field": "name"
+            }
+          }
+        }
+      ],
+      "kitsap": [
+        {
+          "boundary_type": "port_district",
+          "source_format": "arcgis_geojson",
+          "url": "https://gisdata.kingcounty.gov/arcgis/rest/services/OpenDataPortal/district___base/MapServer/407/query",
+          "field_mappings": {
+            "DISTRICT": {
+              "dst_field": "name"
+            }
+          }
+        },
+        {
+          "boundary_type": "county_comissioner_district",
+          "source_format": "arcgis_geojson",
+          "url": "https://services6.arcgis.com/qt3UCV9x5kB4CwRA/arcgis/rest/services/County_Commissioner_District_Outlines/FeatureServer/0/query",
+          "field_mappings": {
+            "DISTRICT": {
+              "dst_field": "name"
+            }
+          }
+        },
+        {
+          "boundary_type": "port_comissioner_district",
+          "source_format": "arcgis_geojson",
+          "url": "https://services6.arcgis.com/qt3UCV9x5kB4CwRA/arcgis/rest/services/Port_Commissioner_District_Outlines/FeatureServer/0/query",
+          "field_mappings": {
+            "DISTRICT": {
+              "dst_field": "name"
+            }
+          }
+        }
+      ],
+      "pierce": [
+        {
+          "boundary_type": "port_comissioner_district",
+          "source_format": "arcgis_geojson",
+          "url": "https://services2.arcgis.com/1UvBaQ5y1ubjUPmd/arcgis/rest/services/Pierce_County_Council_Districts/FeatureServer/0/query",
+          "field_mappings": {
+            "DISTRICT": {
+              "dst_field": "name"
+            }
+          }
+        }
+      ]
+    }
+  }
+}
