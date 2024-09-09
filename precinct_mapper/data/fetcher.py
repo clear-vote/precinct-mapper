@@ -8,12 +8,96 @@ import warnings
 import zipfile
 
 from io import BytesIO
+from collections import defaultdict
 from tempfile import TemporaryDirectory
 from typing import List, Dict, Tuple
 from pathlib import Path
 from requests import Request, Session
 from requests.exceptions import ConnectionError, Timeout, RequestException
 from typeguard import typechecked
+
+@typechecked
+def fetch_from_json(filepath: str | Path, output_dir: str | Path):
+    """Provide a json file with configuration info used to fetch data and write to files."""
+    # TODO:
+    # - complete documentation
+    # - clean up code (need helper functions lol)
+    if isinstance(filepath, str):
+        filepath = Path(filepath)
+    if isinstance(output_dir, str):
+        output_dir = Path(output_dir)
+    
+    if not filepath.suffix == ".json":
+        raise ValueError(f"Provided filepath { str(filepath) } is not a JSON file.")
+    if not (filepath.exists() and filepath.is_file()):
+        raise ValueError(f"Could not find file at requested filepath { str(filepath) }")
+    
+    with open(filepath, "rb") as fp:
+        file_contents = json.load(fp)
+        full_state_fetchers = {} # map of btype to fetcher
+        additional_fetchers = defaultdict(lambda: defaultdict(lambda: defaultdict(str))) # map of scope to area name to btype to fetcher (lol)
+    
+        state_code = file_contents.get("state_code")
+        if state_code is None:
+            raise ValueError("JSON file does not have required field \"state_code\"")
+        
+        sources = file_contents.get("sources")
+        if sources is None:
+            raise ValueError("JSON file does not have required field \"sources\"")
+        
+        state_data = sources.get("state")
+        for scope, area_entries in sources.items():
+            for area_name, entries in area_entries.items():
+                for entry in entries:
+                    src_format = entry.get("source_format")
+                    cur_fetcher = None
+                    url = entry.get("url")
+                    btype = entry.get("boundary_type")
+                    if btype is None:
+                        raise ValueError(f"An entry for {scope} {area_name} is missing boundary_type")
+                    if url is None:
+                        raise ValueError(f"An entry for {scope} {area_name} is missing url")
+                    field_mappings = entry.get("field_mappings")
+                    src_to_dst_fields = {src: dst_entry.get("dst_field") for src, dst_entry in field_mappings.items() }
+                    match src_format:
+                        case "arcgis_geojson":
+                            cur_fetcher = GeoJSONFetcher(
+                                url,
+                                src_to_dst_fields,
+                                True
+                            )
+                        case "geojson":
+                            cur_fetcher = GeoJSONFetcher(
+                                url,
+                                src_to_dst_fields,
+                                False
+                            )
+                        case "gdb":
+                            cur_fetcher = GDBFetcher(
+                                url,
+                                src_to_dst_fields,
+                                entry.get("folder_name"),
+                                entry.get("layer_name")
+                            )
+                        case _:
+                            raise ValueError(f"Source format { src_format } is not allowed")
+                    print(scope, area_name, btype, url, src_to_dst_fields)
+                    if scope == "state":
+                        full_state_fetchers[btype] = cur_fetcher
+                    else:
+                        additional_fetchers[scope][area_name][btype] = cur_fetcher
+    
+    # for state_btype, state_fetcher in full_state_fetchers.items():
+    #     print(f"Fetching state data for {state_btype}")
+    #     data = state_fetcher.fetch()
+    #     GeoWriter.write(data, output_dir / "state", )
+    state_data_fetcher = StateDataFetcher(
+        state_code,
+        full_state_fetchers,
+        additional_fetchers,
+        output_dir
+    )
+    state_data_fetcher.fetch()
 
 @typechecked
 class _GeoFetcherBase:
@@ -83,6 +167,9 @@ class _GeoFetcherBase:
             for c in new_frame.select_dtypes("object").columns:
                 new_frame[c] = new_frame[c].str.casefold()
         return new_frame
+    
+    def __str__(self):
+        return f"Fetcher({self.url}, {self.src_to_dst_fields})"
 
 # @typechecked
 # class NameExtractor():
@@ -299,8 +386,8 @@ class StateDataFetcher:
     def __init__(
         self,
         code: str,
-        full_state_fetchers: List[Tuple[str, _GeoFetcherBase]],
-        additional_fetchers: Dict[str, Dict[str, List[Tuple[str, _GeoFetcherBase]]]],
+        full_state_fetchers: Dict[str, _GeoFetcherBase],
+        additional_fetchers: Dict[str, Dict[str, Dict[str, _GeoFetcherBase]]],
         output_dir: Path = Path(__file__).parent / "datasets"
     ):
         """Initializes this StateDataFetcher object.
@@ -319,6 +406,7 @@ class StateDataFetcher:
         Note: will create a directory under datasets with the same name as the
         given code, if it does not already exist.
         """
+        # TODO: update documentation
         if len(code) != 2:
             raise ValueError(f"State codes must be two letters. Got: '{ code }'")
         self.code = code.upper()
@@ -336,7 +424,7 @@ class StateDataFetcher:
                 naming collision. Otherwise, does not fetch this data.
         """
         state_layers_output_path = self.state_output_path / "state"
-        for name, fetcher in self.full_state_fetchers:
+        for name, fetcher in self.full_state_fetchers.items():
             print(name)
             geodata = fetcher.fetch()
             GeoWriter.write(geodata, state_layers_output_path, name, name)
@@ -351,7 +439,7 @@ class StateDataFetcher:
             for region_name, layers in data.items():
                 nested_dirs = [btype, region_name]
                 output_dir = GeoWriter.nested_path(self.state_output_path, nested_dirs, make_if_absent=True)
-                for name, layer_fetcher in layers:
+                for name, layer_fetcher in layers.items():
                     print(btype, region_name, name)
                     geodata = layer_fetcher.fetch()
                     GeoWriter.write(geodata, output_dir, name, name)
