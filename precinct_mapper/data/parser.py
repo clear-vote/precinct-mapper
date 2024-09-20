@@ -12,51 +12,57 @@ from precinct_mapper.data.containers import Region, State
 
 @typechecked
 class StateParser:
-    datapath = Path(__file__).parent / "datasets"
-
-    def __init__(self, code: str):
-        if len(code) != 2:
-            raise ValueError(f"State codes must be two letters. Got: \'{ code }\'")
-        self.code = code.upper()
-        self.state_all_datapath = StateParser.datapath / self.code
-        assert self.state_all_datapath.is_dir()
-        self.state_tables_datapath = self.state_all_datapath / "state"
-        assert self.state_tables_datapath.is_dir()
-        self.region_tables_datapath = self.state_all_datapath / "region_tables"
-        if not self.region_tables_datapath.exists():
-            self.region_tables_datapath.mkdir()
-        assert self.region_tables_datapath.is_dir()
-        self.precinct_filepath = self.state_tables_datapath / "precinct.gpkg"
-        if not self.precinct_filepath.exists():
-            raise FileNotFoundError(f"Precincts file not found at { self.precinct_filepath }. Ensure it has been fetched")
+    def __init__(self,
+                 datapath: str | Path,
+                 output_dir: str | Path,
+                 primary_table_name: str = "precinct"):
+        # TODO: complete documentation
+        if isinstance(datapath, str):
+            datapath = Path(datapath)
+        if not (datapath.exists() and datapath.is_dir()):
+            raise ValueError(f"Given datapath { datapath } does not exist or is not a directory.")
+        
+        if isinstance(output_dir, str):
+            output_dir = Path(output_dir)
+        if not output_dir.exists():
+            output_dir.mkdir(parents=True, exist_ok=True)
+        
+        self.datapath = datapath
+        self.output_dir = output_dir
+        self.primary_table_path = next(self.datapath.rglob(f"{ primary_table_name }.*"), None)
+        if self.primary_table_path is None:
+            raise FileNotFoundError(f"No file named { primary_table_name }.* exists in the directory { datapath } or its children.")
 
     def parse(self, recompile: bool = False) -> State:
         if recompile:
             self._invert_regional_data()
 
-        state_tables = StateParser._read_directory_tables(self.state_tables_datapath,
-                                                          exclude=["precinct"])
-        region_tables = StateParser._read_directory_tables(self.region_tables_datapath)
-        all_tables = state_tables
-        all_tables.update(region_tables)
+        # state_tables = StateParser._read_directory_tables(self.state_tables_datapath,
+        #                                                   exclude=["precinct"])
+        tables = StateParser._read_directory_tables(self.output_dir, exclude=[self.primary_table_path.stem])
+        # all_tables = state_tables
+        # all_tables.update(region_tables)
 
-        precincts = gpd.read_file(self.precinct_filepath)
+        primary_table = gpd.read_file(self.primary_table_path)
 
-        precincts_filled = precincts
-        for btype, binfo in all_tables.items():
-            precincts_filled[btype] = precincts_filled.apply(lambda row: StateParser._get_bounding_region_index(row["geometry"], binfo), axis=1)
+        primary_table_filled = primary_table
+        for btype, binfo in tables.items():
+            print(f"Parsing btype: { btype }")
+            primary_table_filled[btype] = primary_table_filled.apply(lambda row: StateParser._get_bounding_region_index(row["geometry"], binfo), axis=1)
         
-        return State(all_tables, precincts_filled)
+        return State(tables, primary_table_filled)
             
     def _invert_regional_data(self):
-        shutil.rmtree(self.region_tables_datapath)
-        self.region_tables_datapath.mkdir()
-        for scope in self.state_all_datapath.iterdir():
-            if scope.is_dir() and scope.stem not in ("state", "region_tables"):
+        shutil.rmtree(self.output_dir)
+        self.output_dir.mkdir()
+        for scope in self.datapath.iterdir():
+            if scope.is_dir() and scope.stem not in ("region_tables"):
                 for region_name in scope.iterdir():
                     if region_name.is_dir():
-                        for boundary in region_name.glob("*.gpkg"):
-                            boundary_outpath = self.region_tables_datapath / f"{ boundary.stem }.gpkg"
+                        print(f"Region { region_name } has files: [{ [g for g in region_name.glob('*.*')] }]")
+                        for boundary in region_name.glob("*.*"):
+                            print(f"Inverting: { scope }, { region_name }, { boundary }")
+                            boundary_outpath = self.output_dir / f"{ boundary.stem }.gpkg"
                             table = None
                             new_boundary_table = gpd.read_file(boundary)
                             new_boundary_table["region_name"] = region_name.stem
@@ -73,6 +79,7 @@ class StateParser:
     def _read_directory_tables(dirpath: str | Path,
                                filepattern: str = "*.gpkg",
                                exclude: Collection[str] = []) -> Dict[str, gpd.GeoDataFrame]:
+        print(f"Excluding: { exclude }")
         if isinstance(dirpath, str):
             dirpath = Path(dirpath)
         if not (dirpath.exists() and dirpath.is_dir()):
@@ -80,6 +87,7 @@ class StateParser:
         tables = {}
         for file in dirpath.glob(filepattern):
             if file.stem not in exclude:
+                print(f"File: {file}")
                 table = gpd.read_file(file)
                 tables[file.stem] = table
         return tables
