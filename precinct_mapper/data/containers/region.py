@@ -1,8 +1,11 @@
 from __future__ import annotations
+from numpy import int64
 from shapely import to_geojson
 from shapely.geometry import Point, Polygon, MultiPolygon
 from typing import Dict
+from typeguard import typechecked
 
+@typechecked
 class Region:
     """A base class to store the name and geographical boundary of some region."""
 
@@ -11,7 +14,7 @@ class Region:
         btype: str,
         name: str,
         boundary: Polygon | MultiPolygon,
-        identifier: None | int = None,
+        identifier: None | int | int64 | str = None,
         metadata: Dict[str, any] = {}
     ):
         """Initializes boundary object.
@@ -52,10 +55,13 @@ class Region:
         return {
             "btype": self.btype,
             "id": self.identifier,
-            "name": self.name,
+            "name": str(self.name),
             "boundary": to_geojson(self.boundary),
             "metadata": self.metadata
         }        
+
+    def get_name(self) -> str:
+        return self.name
 
     def get_data_prop(self, prop_name: str):
         """Returns the value of the property with the given name for this region.
