@@ -47,7 +47,7 @@ class StateParser:
 
         primary_table_filled = primary_table
         for btype, binfo in tables.items():
-            print(f"Parsing btype: { btype }")
+            # print(f"Parsing btype: { btype }")
             primary_table_filled[btype] = primary_table_filled.apply(lambda row: StateParser._get_bounding_region_index(row["geometry"], binfo), axis=1)
         
         return State(tables, primary_table_filled)
@@ -59,9 +59,9 @@ class StateParser:
             if scope.is_dir() and scope.stem not in ("region_tables"):
                 for region_name in scope.iterdir():
                     if region_name.is_dir():
-                        print(f"Region { region_name } has files: [{ [g for g in region_name.glob('*.*')] }]")
+                        # print(f"Region { region_name } has files: [{ [g for g in region_name.glob('*.*')] }]")
                         for boundary in region_name.glob("*.*"):
-                            print(f"Inverting: { scope }, { region_name }, { boundary }")
+                            # print(f"Inverting: { scope }, { region_name }, { boundary }")
                             boundary_outpath = self.output_dir / f"{ boundary.stem }.gpkg"
                             table = None
                             new_boundary_table = gpd.read_file(boundary)
@@ -79,7 +79,7 @@ class StateParser:
     def _read_directory_tables(dirpath: str | Path,
                                filepattern: str = "*.gpkg",
                                exclude: Collection[str] = []) -> Dict[str, gpd.GeoDataFrame]:
-        print(f"Excluding: { exclude }")
+        # print(f"Excluding: { exclude }")
         if isinstance(dirpath, str):
             dirpath = Path(dirpath)
         if not (dirpath.exists() and dirpath.is_dir()):
@@ -87,7 +87,7 @@ class StateParser:
         tables = {}
         for file in dirpath.glob(filepattern):
             if file.stem not in exclude:
-                print(f"File: {file}")
+                # print(f"File: {file}")
                 table = gpd.read_file(file)
                 tables[file.stem] = table
         return tables
@@ -112,7 +112,7 @@ class StateParser:
             return None
         elif nrows > 1:
             results.plot(figsize=(15, 12), color=["lightblue", "purple"], edgecolor="black", alpha=0.2)
-            print(results.iloc[0]["geometry"].contains(results.iloc[1]["geometry"]), results.iloc[0]["geometry"].within(results.iloc[1]["geometry"]))
+            # print(results.iloc[0]["geometry"].contains(results.iloc[1]["geometry"]), results.iloc[0]["geometry"].within(results.iloc[1]["geometry"]))
             raise RuntimeError(f"Multiple boundaries contained {point}: {results['region']}.")
         
         return results.iloc[0]["region"]
