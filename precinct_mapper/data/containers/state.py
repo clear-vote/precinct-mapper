@@ -133,24 +133,17 @@ class State:
         return table
 
     
-    def lookup_lat_lon_as_dict(self, lat: float, lon: float) -> Dict[str, Dict[str, any]]:
+    def lookup_lat_lon_as_dict(self, lat: float, lon: float, names_only: bool = False) -> Dict[str, Dict[str, any] | str]:
         regions_result = self.lookup_lat_lon(lat, lon)
         result = {}
         for btype, region in regions_result.items():
             if region is None:
                 result[btype] = None
             else:
-                result[btype] = region.as_dict()
-        return result
-        
-    def lookup_lat_lon_as_dict(self, lat: float, lon: float) -> Dict[str, Dict[str, any]]:
-        regions_result = self.lookup_lat_lon(lat, lon)
-        result = {}
-        for btype, region in regions_result.items():
-            if region is None:
-                result[btype] = None
-            else:
-                result[btype] = region.as_dict()
+                if names_only:
+                    result[btype] = region.get_name()
+                else:
+                    result[btype] = region.as_dict()
         return result
     
     def lookup_lat_lon(self, lat: float, lon: float) -> Dict[str, Region]:
@@ -171,7 +164,7 @@ class State:
         single_result = lookup_result.iloc[0]
         boundary_info = {}
         boundary_info["precinct"] = Region("precinct",
-                                           single_result.get("name"),
+                                           str(single_result.get("name")),
                                            single_result.get("geometry"),
                                            single_result.get("id"))
         for btype in self.btypes:
@@ -190,4 +183,4 @@ class State:
             result = btable.iloc[id]
         except IndexError as ie:
             raise LookupError(f"Could not find {btype} with id {id}. Found {len(result)}.") from ie
-        return Region(btype, result["name"], result["geometry"], identifier=result["id"])
+        return Region(btype, str(result["name"]), result["geometry"], identifier=result.get("id"))

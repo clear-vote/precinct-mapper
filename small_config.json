@@ -1,0 +1,104 @@
+{
+    "state_code": "WA",
+    "sources": {
+      "state": {
+        "WA": [
+          {
+            "boundary_type": "legislative_district",
+            "source_format": "arcgis_geojson",
+            "url": "https://services.arcgis.com/bCYnGqM4FMTBSjd1/arcgis/rest/services/Washington_State_Legislative_Districts_2022/FeatureServer/0/query",
+            "field_mappings": {
+              "ID": {
+                "dst_field": "id"
+              },
+              "DISTRICT": {
+                "dst_field": "name"
+              }
+            }
+          },
+          {
+            "boundary_type": "congressional_district",
+            "source_format": "geojson",
+            "url": "https://drive.google.com/uc?export=download&id=1eqXHaeqnBZw3HEW7yOJMxYCtREKnqTV-",
+            "field_mappings": {
+              "ID": {
+                "dst_field": "id"
+              },
+              "DISTRICT": {
+                "dst_field": "name"
+              }
+            }
+          }
+        ]
+      },
+      "city": {
+        "seattle": [
+          {
+            "boundary_type": "city_council_district",
+            "source_format": "arcgis_geojson",
+            "url": "https://services.arcgis.com/ZOyb2t4B0UYuYNYH/arcgis/rest/services/Seattle_City_Council_District/FeatureServer/0/query",
+            "field_mappings": {
+              "C_DISTRICT": {
+                "dst_field": "name"
+              }
+            }
+          },
+          {
+            "boundary_type": "school_board_director_district",
+            "source_format": "arcgis_geojson",
+            "url": "https://gisdata.kingcounty.gov/arcgis/rest/services/OpenDataPortal/district___base/MapServer/406/query",
+            "field_mappings": {
+              "DIRDST": {
+                "dst_field": "id"
+              },
+              "NAME": {
+                "dst_field": "name",
+                "regex": "Director District (?P<name>\\d+)"
+              }
+            }
+          }
+        ]
+      },
+      "county": {
+        "jefferson": [
+          {
+            "boundary_type": "commissioner_district",
+            "source_format": "arcgis_geojson",
+            "url": "https://gisweb.jeffcowa.us/server/rest/services/OpenData/OpenData/MapServer/26/query",
+            "field_mappings": {
+              "DISTID": {
+                "dst_field": "id"
+              },
+              "NAME": {
+                "dst_field": "name",
+                "regex": "District (?P<name>\\d+)"
+              }
+            }
+          },
+          {
+            "boundary_type": "fire_district",
+            "source_format": "arcgis_geojson",
+            "url": "https://gisweb.jeffcowa.us/server/rest/services/PoliticalBoundaries/MapServer/6/query",
+            "field_mappings": {
+              "DISTRICTID": {
+                "dst_field": "name"
+              }
+            }
+          }
+        ],
+        "pierce": [
+          {
+            "boundary_type": "port_comissioner_district",
+            "source_format": "arcgis_geojson",
+            "url": "https://services2.arcgis.com/1UvBaQ5y1ubjUPmd/arcgis/rest/services/Pierce_County_Council_Districts/FeatureServer/0/query",
+            "field_mappings": {
+              "Maplabel": {
+                "dst_field": "name",
+                "regex": "District #(?P<name>\\d+)"
+              }
+            }
+          }
+        ]
+      }
+    }
+  }

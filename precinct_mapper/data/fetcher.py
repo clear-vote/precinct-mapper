@@ -45,7 +45,6 @@ def fetch_from_json(filepath: str | Path, output_dir: str | Path):
         if sources is None:
             raise ValueError("JSON file does not have required field \"sources\"")
         
-        state_data = sources.get("state")
         for scope, area_entries in sources.items():
             for area_name, entries in area_entries.items():
                 for entry in entries:
@@ -59,23 +58,31 @@ def fetch_from_json(filepath: str | Path, output_dir: str | Path):
                         raise ValueError(f"An entry for {scope} {area_name} is missing url")
                     field_mappings = entry.get("field_mappings")
                     src_to_dst_fields = {src: dst_entry.get("dst_field") for src, dst_entry in field_mappings.items() }
+                    src_to_dst_regex = {}
+                    for src, dst_entry in field_mappings.items():
+                        regex = dst_entry.get("regex")
+                        if regex is not None:
+                            src_to_dst_regex[src] = regex
                     match src_format:
                         case "arcgis_geojson":
                             cur_fetcher = GeoJSONFetcher(
                                 url,
                                 src_to_dst_fields,
+                                src_to_dst_regex,
                                 True
                             )
                         case "geojson":
                             cur_fetcher = GeoJSONFetcher(
                                 url,
                                 src_to_dst_fields,
+                                src_to_dst_regex,
                                 False
                             )
                         case "gdb":
                             cur_fetcher = GDBFetcher(
                                 url,
                                 src_to_dst_fields,
+                                src_to_dst_regex,
                                 entry.get("folder_name"),
                                 entry.get("layer_name")
                             )
@@ -106,7 +113,11 @@ class _GeoFetcherBase:
     Extending classes should override the function fetch_unchecked.
     """
 
-    def __init__(self, url: str, src_to_dst_fields: Dict[str, str], parameters: Dict[str, str] = {}):
+    def __init__(self,
+                 url: str,
+                 src_to_dst_fields: Dict[str, str],
+                 src_to_dst_regex: Dict[str, str],
+                 parameters: Dict[str, str] = {}):
         """Initializes this fetcher.
         
         :param url: the web url to fetch data from.
@@ -114,6 +125,11 @@ class _GeoFetcherBase:
         :param src_to_dst_fields: a dictionary mapping columns/attributes names
             in the source data to their names in the output data.
         :type src_to_dst_fields: dict
+        :param src_to_dst_regex: a dictionary mapping columns/attributes names
+            in the source data to a regex string to process values in that column.
+            the regex should have a named group with a name that matches the dst
+            entry in `src_to_dst_fields`
+        :type src_to_dst_regex: dict
         :param parameters: parameters to include in the request on top of the
             provided URL.
         :type parameters: dict, optional
@@ -121,6 +137,7 @@ class _GeoFetcherBase:
         self.req = Request("GET", url, params=parameters)
         self.session = Session()
         self.src_to_dst_fields = src_to_dst_fields
+        self.src_to_dst_regex = src_to_dst_regex
 
     def fetch(self, timeout: int = 10) -> gpd.GeoDataFrame:
         """Fetches geodata from the source provided on initialization and
@@ -145,6 +162,18 @@ class _GeoFetcherBase:
         """
         warnings.warn("fetch_unchecked should be overriden by child classes.")
 
+    @staticmethod
+    def _process_column(initial_value, regex, dst_name):
+        match = re.search(regex, initial_value)
+        if match:
+            val = match.group(dst_name)
+            if val is None:
+                raise ValueError(f"Group { dst_name } could not be found in input, { initial_value }")
+            print(f"Input: { initial_value }, Output: { val }")
+            return val
+        else:
+            raise ValueError(f"Could not find matching pattern for \"{ regex }\" in input, \"{ initial_value }\".")
+
     def _process_frame(
         self, frame: gpd.GeoDataFrame, lower: bool = True
     ) -> gpd.GeoDataFrame:
@@ -162,22 +191,21 @@ class _GeoFetcherBase:
                 raise ValueError(f"Given dataframe has invalid source column: {src_field}. Must be one of {list(self.src_to_dst_fields.keys())}")
         frame.to_crs("epsg:4326", inplace=True)
         new_frame = frame[list(self.src_to_dst_fields.keys()) + ["geometry"]]
+        for src, regex in self.src_to_dst_regex.items():
+            dst_name = self.src_to_dst_fields[src]
+            new_frame[src] = new_frame[src].apply(
+                lambda initial_value: _GeoFetcherBase._process_column(initial_value, regex, dst_name)
+            )
+
         new_frame = new_frame.rename(self.src_to_dst_fields, axis=1)
+        
         if lower:
             for c in new_frame.select_dtypes("object").columns:
                 new_frame[c] = new_frame[c].str.casefold()
         return new_frame
     
     def __str__(self):
-        return f"Fetcher({self.url}, {self.src_to_dst_fields})"
-
-# @typechecked
-# class NameExtractor():
-#     def __init__(self, pattern: str):
-#         pattern_re = re.compile(pattern)
-#         if "name" not in pattern_re.groups():
-#             raise ValueError(f"Pattern must contain a \'name\' group. Got: { pattern }")
-#         if self
+        return f"Fetcher({ self.req.url }, { self.src_to_dst_fields })"
 
 @typechecked
 class GeoWriter:
@@ -251,7 +279,7 @@ class GeoWriter:
 
 @typechecked
 class GeoJSONFetcher(_GeoFetcherBase):
-    def __init__(self, url: str, src_to_dst_fields: Dict[str, str], from_arcgis: bool = True):
+    def __init__(self, url: str, src_to_dst_fields: Dict[str, str], src_to_dst_regex: Dict[str, str], from_arcgis: bool = True):
         if from_arcgis: \
             params = {
                 "where": "1=1",
@@ -280,6 +308,7 @@ class GeoJSONFetcher(_GeoFetcherBase):
         super().__init__(
             url,
             src_to_dst_fields,
+            src_to_dst_regex,
             params
         )
 
@@ -315,15 +344,15 @@ class GeoJSONFetcher(_GeoFetcherBase):
             num_items = len(boundary_data)
             result_offset += num_items
             table_parts.append(boundary_data)
-        
+
         full_table = pd.concat(table_parts, ignore_index=True)
         self.req.params["resultOffset"] = 0
         return self._process_frame(full_table)
     
 @typechecked
 class ShapefileFetcher(_GeoFetcherBase):
-    def __init__(self, url: str, src_to_dst_fields: Dict[str, str], src_name: str):
-        super().__init__(url, src_to_dst_fields)
+    def __init__(self, url: str, src_to_dst_fields: Dict[str, str], src_to_dst_regex: Dict[str, str], src_name: str):
+        super().__init__(url, src_to_dst_fields, src_to_dst_regex)
         self.src_name = src_name
 
     def fetch_unchecked(self, dirs: str | List[str], timeout: int = 10) -> gpd.GeoDataFrame:
@@ -351,8 +380,8 @@ class ShapefileFetcher(_GeoFetcherBase):
 
 @typechecked
 class GDBFetcher(_GeoFetcherBase):
-    def __init__(self, url: str, src_to_dst_fields: Dict[str, str], src_name: str, layer_name: str):
-        super().__init__(url, src_to_dst_fields)
+    def __init__(self, url: str, src_to_dst_fields: Dict[str, str], src_to_dst_regex: Dict[str, str], src_name: str, layer_name: str):
+        super().__init__(url, src_to_dst_fields, src_to_dst_regex)
         self.src_name = src_name
         self.layer_name = layer_name
     
