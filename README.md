@@ -1,18 +1,17 @@
 # precinct-mapper
-A Python Package to preprocess voting precinct and district geodata and make it easy to query. Currently restricted to WA state.
+A Python Package to preprocess precinct and district geodata and make it easy to query.
 
 # To run in DEVELOPMENT
 1. make sure you have Jupyter and ipykernel installed
-2. create a conda environment (-f flag specifies file): `conda env create -f dev_env.yaml`. This will create a conda environment called 'precinct_mapper'
-3. activate that environment: `conda activate precinct_mapper`
+2. create a conda environment (-f flag specifies file): `conda env create -f env.yaml`. This will create a conda environment called 'precinct_env'
+3. activate that environment: `conda activate precinct_env`
 
 # To run in PRODUCTION
 1. create a virtual environment `python -m venv venv`
 2. then activate it `source venv/bin/activate`
 3. pip install precinct_mapper `pip install git+https://github.com/clear-vote/precinct-mapper.git`
-4. TODO: Anaya install requests!!! `pip install requests`
-5. Save it all to requirements.txt `pip freeze > requirements.txt` *in the virtual environment*
-6. issue the following commands...
+4. Save it all to requirements.txt `pip freeze > requirements.txt` *in the virtual environment*
+5. issue the following commands...
 ```
 from precinct_mapper.mapper import load_state
 state_obj = load_state()
@@ -20,7 +19,6 @@ json = state_obj.lookup_lat_lon(-122.3328, 47.6061)
 print(json['county'].name)
 
 ```
-u gud to go
 
 ## SSH Config (so you can modify AWS code locally)
 Insert the following ssh code
