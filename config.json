@@ -103,9 +103,6 @@
           "url": "https://services.arcgis.com/ZOyb2t4B0UYuYNYH/arcgis/rest/services/Seattle_City_Council_District/FeatureServer/0/query",
           "field_mappings": {
             "C_DISTRICT": {
-              "dst_field": "id"
-            },
-            "DISPLAY_NAME": {
               "dst_field": "name"
             }
           }
@@ -119,7 +116,8 @@
               "dst_field": "id"
             },
             "NAME": {
-              "dst_field": "name"
+              "dst_field": "name",
+              "regex": "Director District (?P<name>\\d+)"
             }
           }
         }
@@ -153,7 +151,8 @@
               "dst_field": "id"
             },
             "NAME": {
-              "dst_field": "name"
+              "dst_field": "name",
+              "regex": "District (?P<name>\\d+)"
             }
           }
         },
@@ -163,9 +162,6 @@
           "url": "https://gisweb.jeffcowa.us/server/rest/services/PoliticalBoundaries/MapServer/6/query",
           "field_mappings": {
             "DISTRICTID": {
-              "dst_field": "id"
-            },
-            "AGENCY": {
               "dst_field": "name"
             }
           }
@@ -237,8 +233,9 @@
           "source_format": "arcgis_geojson",
           "url": "https://services2.arcgis.com/1UvBaQ5y1ubjUPmd/arcgis/rest/services/Pierce_County_Council_Districts/FeatureServer/0/query",
           "field_mappings": {
-            "DISTRICT": {
-              "dst_field": "name"
+            "Maplabel": {
+              "dst_field": "name",
+              "regex": "District #(?P<name>\\d+)"
             }
           }
         }
