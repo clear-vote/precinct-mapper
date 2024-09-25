@@ -37,26 +37,29 @@ class StateParser:
         if recompile:
             self._invert_regional_data()
 
-        # state_tables = StateParser._read_directory_tables(self.state_tables_datapath,
-        #                                                   exclude=["precinct"])
-        tables = StateParser._read_directory_tables(self.output_dir, exclude=[self.primary_table_path.stem])
-        # all_tables = state_tables
-        # all_tables.update(region_tables)
+        state_tables = StateParser._read_directory_tables(self.datapath / "state/",
+                                                          exclude=["precinct"])
+        # print(f"State tables: {state_tables}")
+        region_tables = StateParser._read_directory_tables(self.output_dir, exclude=[self.primary_table_path.stem])
+        # print(f"Region tables: {region_tables}")
+        all_tables = state_tables
+        all_tables.update(region_tables)
 
         primary_table = gpd.read_file(self.primary_table_path)
 
         primary_table_filled = primary_table
-        for btype, binfo in tables.items():
+        for btype, binfo in all_tables.items():
             # print(f"Parsing btype: { btype }")
             primary_table_filled[btype] = primary_table_filled.apply(lambda row: StateParser._get_bounding_region_index(row["geometry"], binfo), axis=1)
         
-        return State(tables, primary_table_filled)
+        return State(all_tables, primary_table_filled)
             
     def _invert_regional_data(self):
         shutil.rmtree(self.output_dir)
         self.output_dir.mkdir()
         for scope in self.datapath.iterdir():
             if scope.is_dir() and scope.stem not in ("region_tables"):
+                # print(f"Scope: {scope}")
                 for region_name in scope.iterdir():
                     if region_name.is_dir():
                         # print(f"Region { region_name } has files: [{ [g for g in region_name.glob('*.*')] }]")
